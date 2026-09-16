@@ -23,7 +23,7 @@ function Nav() {
 
   return (
     <header className="sticky top-0 z-50 backdrop-blur-md bg-[#faf8ff]/90 border-b border-[#c7c4d8]/30 shadow-[0_1px_8px_0_rgba(15,23,42,0.04)]">
-      <nav className="w-full flex items-center justify-between px-8 lg:px-16 h-16">
+      <nav className="max-w-[1440px] mx-auto flex items-center justify-between px-8 lg:px-12 h-16">
         <div className="flex items-center gap-6">
           <Logo />
           <div className="hidden md:flex items-center gap-1 text-sm">
@@ -268,7 +268,7 @@ function TrustedBy() {
   const names = ['VERTEX', 'KINETIC', 'PULSEFLOW', 'SYNTH', 'BASELINE'];
   return (
     <div className="bg-white py-10">
-      <div className="w-full px-8 lg:px-16">
+      <div className="max-w-[1440px] mx-auto px-8 lg:px-12">
         <p className="text-center text-xs font-semibold tracking-widest text-[#464555] uppercase mb-6">
           Trusted by over 12,000+ teams, creators, & fast-growing tech companies
         </p>
@@ -307,7 +307,7 @@ function FeatureCard({ badge, iconBg, icon, title, description, statLabel, stat,
 
 function Features() {
   return (
-    <div id="features" className="w-full px-6 lg:px-16 py-16">
+    <div id="features" className="max-w-[1440px] mx-auto px-8 lg:px-12 py-16">
       <div className="text-center mb-12 max-w-2xl mx-auto">
         <p className="text-xs font-semibold tracking-widest text-[#3525cd] uppercase mb-2">
           Built for high velocities
@@ -359,7 +359,7 @@ function Features() {
 
 function Calculator() {
   return (
-    <div className="w-full px-8 lg:px-16 py-6">
+    <div className="max-w-[1440px] mx-auto px-8 lg:px-12 py-6">
       <div className="bg-[#f2f3ff] rounded-3xl p-8 sm:p-10 grid md:grid-cols-2 gap-10 items-start">
         {/* ROI slider card */}
         <div>
@@ -425,7 +425,7 @@ function Calculator() {
 
 function FinalCTA() {
   return (
-    <div className="w-full px-8 lg:px-16 py-10">
+    <div className="max-w-[1440px] mx-auto px-8 lg:px-12 py-10">
       <div className="relative overflow-hidden bg-[#3525cd] rounded-3xl px-8 py-16 text-center">
         <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-[#4f46e5]/40 blur-3xl" />
         <div className="absolute -left-16 -bottom-16 w-64 h-64 rounded-full bg-[#4d44e3]/40 blur-3xl" />
@@ -467,7 +467,7 @@ function FinalCTA() {
 function Footer() {
   return (
     <footer className="bg-white border-t border-[#c7c4d8]/30 py-10">
-      <div className="w-full px-8 lg:px-16 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="max-w-[1440px] mx-auto px-8 lg:px-12 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <Logo />
           <p className="text-xs text-[#464555] ml-2">
@@ -495,7 +495,7 @@ export default function Landing() {
         <div className="absolute -left-40 top-80 w-96 h-96 rounded-full bg-[#6cf8bb]/20 blur-3xl pointer-events-none" />
         <div className="absolute -right-40 top-96 w-96 h-96 rounded-full bg-[#c3c0ff]/30 blur-3xl pointer-events-none" />
 
-        <div className="relative w-full px-6 sm:px-10 lg:px-16 pt-10 pb-6 text-center">
+        <div className="relative max-w-[1440px] mx-auto px-6 sm:px-10 lg:px-12 pt-10 pb-6 text-center">
           <AnnouncementBadge />
 
           <h1 className="text-4xl md:text-5xl font-extrabold text-[#131b2e] tracking-tight leading-tight mb-4">
@@ -515,20 +515,11 @@ export default function Landing() {
               to="/signup"
               className="bg-[#4f46e5] hover:bg-[#4338ca] text-white px-10 py-3.5 rounded-xl font-semibold shadow-[0_10px_15px_-3px_rgba(79,70,229,0.25),0_4px_6px_-4px_rgba(79,70,229,0.25)] transition-colors flex items-center gap-2"
             >
-              Start Free Trial <span aria-hidden>→</span>
+              Register Now <span aria-hidden>→</span>
             </Link>
-            <a
-              href="#product"
-              className="bg-white hover:bg-gray-50 text-[#131b2e] px-6 py-3.5 rounded-xl font-semibold shadow-sm transition-colors flex items-center gap-2"
-            >
-              ▶ Watch 2-min Demo
-            </a>
           </div>
 
           <div className="flex flex-wrap justify-center gap-6 text-xs font-medium text-[#464555] mb-16">
-            <span>✓ No credit card required</span>
-            <span>✓ 14-day full access</span>
-            <span>✓ Cancel anytime</span>
           </div>
 
           <div id="product" className="flex justify-center">
