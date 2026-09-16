@@ -8,6 +8,7 @@ const router = express.Router();
 
 // Validation schemas
 const signupSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
   email: z.string().email(),
   password: z.string().min(8, 'Password must be at least 8 characters')
 });
@@ -24,18 +25,18 @@ router.post('/signup', async (req, res) => {
     return res.status(400).json({ error: parsed.error.errors[0].message });
   }
 
-  const { email, password } = parsed.data;
+ const { name, email, password } = parsed.data;
 
-  const existingUser = await prisma.user.findUnique({ where: { email } });
-  if (existingUser) {
-    return res.status(409).json({ error: 'Email already in use' });
-  }
+const existingUser = await prisma.user.findUnique({ where: { email } });
+if (existingUser) {
+  return res.status(409).json({ error: 'Email already in use' });
+}
 
-  const passwordHash = await bcrypt.hash(password, 12);
+const passwordHash = await bcrypt.hash(password, 12);
 
-  const user = await prisma.user.create({
-    data: { email, passwordHash }
-  });
+const user = await prisma.user.create({
+  data: { name, email, passwordHash }
+});
 
   const token = jwt.sign(
     { userId: user.id },
@@ -44,9 +45,9 @@ router.post('/signup', async (req, res) => {
   );
 
   res.status(201).json({
-    token,
-    user: { id: user.id, email: user.email }
-  });
+  token,
+  user: { id: user.id, name: user.name, email: user.email }
+});
 });
 
 // POST /api/auth/login
