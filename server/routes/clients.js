@@ -44,7 +44,7 @@ router.put('/:id', async (req, res) => {
   }
 
   const client = await prisma.client.findUnique({
-    where: { id: Number(req.params.id) }
+    where: { id: req.params.id }
   });
 
   if (!client || client.userId !== req.userId) {
@@ -62,7 +62,7 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/clients/:id
 router.delete('/:id', async (req, res) => {
   const client = await prisma.client.findUnique({
-    where: { id: Number(req.params.id) }
+    where: { id: req.params.id }
   });
 
   if (!client || client.userId !== req.userId) {

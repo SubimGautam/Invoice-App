@@ -13,7 +13,7 @@ const itemSchema = z.object({
 });
 
 const invoiceSchema = z.object({
-  clientId: z.number().int().positive('A client is required'),
+  clientId: z.string().uuid('A valid client is required'),
   issueDate: z.string().datetime().or(z.string().min(1)),
   dueDate: z.string().datetime().or(z.string().min(1)),
   notes: z.string().optional(),
