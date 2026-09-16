@@ -11,7 +11,8 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use('/api/auth', require('./routes/auth'));
-
+app.use('/api/clients', require('./routes/clients'));
+app.use('/api/invoices', require('./routes/invoices'));
 // Health check route — confirms the server is alive
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
