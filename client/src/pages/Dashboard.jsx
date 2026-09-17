@@ -112,28 +112,60 @@ function KPICard({ label, value, valueColor, icon, iconBg, footnote, badge, badg
   );
 }
 
+const DEFAULT_STATS = {
+  counts: { all: 0, draft: 0, pending: 0, paid: 0, overdue: 0 },
+  sums: { totalOutstanding: 0, paidThisMonth: 0, overdueTotal: 0, draftsTotal: 0 },
+};
+
 export default function Dashboard() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
+  const [stats, setStats] = useState(DEFAULT_STATS);
 
+  // Real counts + dollar totals across the WHOLE account — independent of pagination/filter.
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  async function loadStats() {
+    try {
+      const data = await api.getInvoiceStats();
+      setStats(data);
+    } catch {
+      // Non-fatal — KPI cards just show zeros if this fails; the invoice list still works.
+    }
+  }
+
+  // Re-fetch the paginated list whenever the page OR the active filter changes.
   useEffect(() => {
     loadInvoices();
-  }, []);
+  }, [page, activeFilter]);
 
   async function loadInvoices() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getInvoices();
-      setInvoices(data);
+      const statusParam = activeFilter === 'all' ? undefined : activeFilter;
+      const data = await api.getInvoices(page, 20, statusParam);
+      setInvoices(data.invoices);
+      setPagination(data.pagination);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  // Clicking a tab changes the filter AND resets to page 1, so you don't land on
+  // a nonexistent page of a much smaller filtered result set.
+  function handleFilterChange(key) {
+    setActiveFilter(key);
+    setPage(1);
   }
 
   const invoicesWithStatus = useMemo(
@@ -146,29 +178,16 @@ export default function Dashboard() {
     [invoices]
   );
 
-  const counts = useMemo(() => {
-    const c = { all: invoicesWithStatus.length, draft: 0, pending: 0, paid: 0, overdue: 0 };
-    invoicesWithStatus.forEach((inv) => { c[inv.displayStatus] = (c[inv.displayStatus] || 0) + 1; });
-    return c;
-  }, [invoicesWithStatus]);
-
+  // Status filtering now happens on the server (see loadInvoices) — this only
+  // handles search, since search stays client-side against the current page.
   const filtered = useMemo(() => {
-    return invoicesWithStatus.filter((inv) => {
-      const matchesFilter = activeFilter === 'all' || inv.displayStatus === activeFilter;
-      const matchesSearch =
-        !search ||
+    if (!search) return invoicesWithStatus;
+    return invoicesWithStatus.filter(
+      (inv) =>
         inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
-        inv.client.name.toLowerCase().includes(search.toLowerCase());
-      return matchesFilter && matchesSearch;
-    });
-  }, [invoicesWithStatus, activeFilter, search]);
-
-  const totalOutstanding = invoicesWithStatus
-    .filter((i) => i.displayStatus === 'pending' || i.displayStatus === 'overdue')
-    .reduce((sum, i) => sum + i.total, 0);
-  const paidThisMonth = invoicesWithStatus.filter((i) => i.displayStatus === 'paid').reduce((sum, i) => sum + i.total, 0);
-  const overdueTotal = invoicesWithStatus.filter((i) => i.displayStatus === 'overdue').reduce((sum, i) => sum + i.total, 0);
-  const draftsTotal = invoicesWithStatus.filter((i) => i.displayStatus === 'draft').reduce((sum, i) => sum + i.total, 0);
+        inv.client.name.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [invoicesWithStatus, search]);
 
   const tabs = [
     { key: 'all', label: 'All Invoices' },
@@ -221,41 +240,41 @@ export default function Dashboard() {
             <div className="flex flex-wrap gap-4 md:gap-6 mt-6">
               <KPICard
                 label="Total Outstanding"
-                value={formatMoney(totalOutstanding)}
+                value={formatMoney(stats.sums.totalOutstanding)}
                 icon={imgOutstandingIcon}
                 iconBg="#eaedff"
-                footnote={`${counts.pending + counts.overdue} invoices pending`}
+                footnote={`${stats.counts.pending + stats.counts.overdue} invoices pending`}
                 badge={<span className="flex items-center gap-1"><img src={imgUpArrowIcon} alt="" className="w-2.5 h-1.5" />Live</span>}
                 badgeColor="#006c49"
                 badgeBg="#f2f3ff"
               />
               <KPICard
                 label="Paid This Month"
-                value={formatMoney(paidThisMonth)}
+                value={formatMoney(stats.sums.paidThisMonth)}
                 icon={imgPaidIcon}
                 iconBg="rgba(111,251,190,0.3)"
-                footnote={`${counts.paid} settled invoices`}
+                footnote={`${stats.counts.paid} settled invoices`}
                 badge="On schedule"
                 badgeColor="#006c49"
                 badgeBg="#f2f3ff"
               />
               <KPICard
                 label="Overdue"
-                value={formatMoney(overdueTotal)}
+                value={formatMoney(stats.sums.overdueTotal)}
                 valueColor="#ba1a1a"
                 icon={imgOverdueIcon}
                 iconBg="rgba(255,218,214,0.4)"
-                footnote={`${counts.overdue} delayed client payments`}
-                badge={counts.overdue > 0 ? 'Requires action' : 'All clear'}
+                footnote={`${stats.counts.overdue} delayed client payments`}
+                badge={stats.counts.overdue > 0 ? 'Requires action' : 'All clear'}
                 badgeColor="#ba1a1a"
                 badgeBg="rgba(255,218,214,0.3)"
               />
               <KPICard
                 label="Drafts Prepared"
-                value={formatMoney(draftsTotal)}
+                value={formatMoney(stats.sums.draftsTotal)}
                 icon={imgDraftsIcon}
                 iconBg="#e2e7ff"
-                footnote={`${counts.draft} unreleased invoices`}
+                footnote={`${stats.counts.draft} unreleased invoices`}
                 badge="In review"
                 badgeColor="#464555"
                 badgeBg="#f2f3ff"
@@ -268,7 +287,7 @@ export default function Dashboard() {
                   {tabs.map((tab) => (
                     <button
                       key={tab.key}
-                      onClick={() => setActiveFilter(tab.key)}
+                      onClick={() => handleFilterChange(tab.key)}
                       className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm whitespace-nowrap transition-colors ${
                         activeFilter === tab.key ? 'bg-[#eaedff] text-[#3525cd] font-semibold' : 'text-[#464555] hover:bg-gray-50'
                       }`}
@@ -281,7 +300,7 @@ export default function Dashboard() {
                           color: activeFilter === tab.key ? '#3525cd' : '#464555',
                         }}
                       >
-                        {counts[tab.key] || 0}
+                        {stats.counts[tab.key] || 0}
                       </span>
                     </button>
                   ))}
@@ -330,14 +349,16 @@ export default function Dashboard() {
                         <td colSpan={7} className="text-center text-[#464555] text-sm py-10">
                           {invoicesWithStatus.length === 0 ? (
                             <>
-                              No invoices yet.{' '}
-                              <Link to="/invoices/new" className="text-[#3525cd] font-semibold hover:underline">
-                                Create your first one
-                              </Link>
-                              .
+                              No invoices{activeFilter !== 'all' ? ` with status "${activeFilter}"` : ' yet'}.{' '}
+                              {activeFilter === 'all' && (
+                                <Link to="/invoices/new" className="text-[#3525cd] font-semibold hover:underline">
+                                  Create your first one
+                                </Link>
+                              )}
+                              {activeFilter === 'all' && '.'}
                             </>
                           ) : (
-                            'No invoices match this filter.'
+                            'No invoices match your search.'
                           )}
                         </td>
                       </tr>
@@ -386,15 +407,27 @@ export default function Dashboard() {
               <div className="flex items-center justify-between p-4 flex-wrap gap-3">
                 <p className="text-xs text-[#464555]">
                   Showing <span className="font-semibold text-[#131b2e]">{filtered.length}</span> of{' '}
-                  <span className="font-semibold text-[#131b2e]">{invoicesWithStatus.length}</span> invoices
+                  <span className="font-semibold text-[#131b2e]">{pagination.total}</span> invoices
                 </p>
                 <div className="flex items-center gap-1">
-                  <button className="flex items-center gap-1 h-9 px-4 rounded-xl bg-[#f2f3ff] text-xs font-medium text-[#464555] opacity-50 cursor-not-allowed">
+                  <button
+                    onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                    disabled={page <= 1}
+                    className={`flex items-center gap-1 h-9 px-4 rounded-xl text-xs font-medium transition-colors ${
+                      page <= 1 ? 'bg-[#f2f3ff] text-[#464555] opacity-50 cursor-not-allowed' : 'bg-[#f2f3ff] text-[#131b2e] hover:bg-gray-200'
+                    }`}
+                  >
                     <img src={imgChevronLeft} alt="" className="w-1.5 h-2" />
                     Previous
                   </button>
-                  <button className="w-9 h-9 rounded-xl bg-[#eaedff] text-xs font-bold text-[#3525cd]">1</button>
-                  <button className="flex items-center gap-1 h-9 px-4 rounded-xl bg-[#f2f3ff] text-xs font-medium text-[#131b2e] hover:bg-gray-200 transition-colors">
+                  <button className="w-9 h-9 rounded-xl bg-[#eaedff] text-xs font-bold text-[#3525cd]">{page}</button>
+                  <button
+                    onClick={() => setPage((p) => Math.min(p + 1, pagination.totalPages))}
+                    disabled={page >= pagination.totalPages}
+                    className={`flex items-center gap-1 h-9 px-4 rounded-xl text-xs font-medium transition-colors ${
+                      page >= pagination.totalPages ? 'bg-[#f2f3ff] text-[#464555] opacity-50 cursor-not-allowed' : 'bg-[#f2f3ff] text-[#131b2e] hover:bg-gray-200'
+                    }`}
+                  >
                     Next
                     <img src={imgChevronRightSm} alt="" className="w-1.5 h-2" />
                   </button>
@@ -411,7 +444,7 @@ export default function Dashboard() {
                   </div>
                   <span className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[#006c49]">
                     <span className="w-2 h-2 rounded-full bg-[#006c49]" />
-                    {counts.all > 0 ? Math.round((counts.paid / counts.all) * 100) : 0}% paid
+                    {stats.counts.all > 0 ? Math.round((stats.counts.paid / stats.counts.all) * 100) : 0}% paid
                   </span>
                 </div>
                 <div className="h-28">
@@ -430,8 +463,8 @@ export default function Dashboard() {
                   <p className="text-xs font-bold font-mono tracking-[0.6px] uppercase text-[#3525cd] mb-1">Batch Operations</p>
                   <h3 className="font-bold text-[#131b2e] mb-2">Reminders</h3>
                   <p className="text-xs text-[#464555] leading-relaxed">
-                    {counts.overdue > 0
-                      ? `${counts.overdue} overdue invoice${counts.overdue > 1 ? 's' : ''} could use a reminder.`
+                    {stats.counts.overdue > 0
+                      ? `${stats.counts.overdue} overdue invoice${stats.counts.overdue > 1 ? 's' : ''} could use a reminder.`
                       : 'No overdue invoices right now — nothing to chase.'}
                   </p>
                 </div>

@@ -33,7 +33,6 @@ export default function Sidebar() {
     <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-[rgba(199,196,216,0.4)] flex-col justify-between z-40">
       <div>
         <div className="h-16 border-b border-[rgba(199,196,216,0.3)] flex items-center gap-2 px-4">
-          <img src={imgLogo} alt="" className="h-8 w-auto" />
           <span className="font-bold text-[#131b2e] tracking-[-0.4px]">Billflow</span>
         </div>
 

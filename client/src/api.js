@@ -27,12 +27,13 @@ async function request(endpoint, options = {}) {
 
 export const api = {
   signup: (name, email, password) =>
-  request('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
+    request('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
 
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
 
   getClients: () => request('/api/clients'),
+  getInvoiceStats: () => request('/api/invoices/stats'),
 
   createClient: (client) =>
     request('/api/clients', { method: 'POST', body: JSON.stringify(client) }),
@@ -43,8 +44,11 @@ export const api = {
   deleteClient: (id) =>
     request(`/api/clients/${id}`, { method: 'DELETE' }),
 
-  getInvoices: (status) =>
-    request(`/api/invoices${status ? `?status=${status}` : ''}`),
+  getInvoices: (page = 1, limit = 20, status) => {
+  const params = new URLSearchParams({ page, limit });
+  if (status) params.set('status', status);
+  return request(`/api/invoices?${params}`);
+},
 
   getInvoice: (id) => request(`/api/invoices/${id}`),
 

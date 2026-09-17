@@ -82,6 +82,7 @@ model Invoice {
   status        InvoiceStatus @default(draft)
   issueDate     DateTime
   dueDate       DateTime
+  paidAt        DateTime?
   notes         String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
