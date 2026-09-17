@@ -27,17 +27,20 @@ model User {
 }
 
 model BusinessProfile {
-  id           String   @id @default(uuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  businessName String
-  email        String?
-  phone        String?
-  address      String?
-  taxNumber    String?
-  logoUrl      String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName  String
+  email         String?
+  phone         String?
+  address       String?
+  taxNumber     String?
+  logoUrl       String?
+  bankName      String?
+  routingNumber String?
+  accountNumber String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model UserSettings {
@@ -87,6 +90,7 @@ model Invoice {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   items         InvoiceItem[]
+  auditLogs     AuditLog[]
 
   @@index([userId, status])
 }
@@ -98,4 +102,18 @@ model InvoiceItem {
   description String
   quantity    Decimal
   unitPrice   Decimal
+}
+
+// Real, append-only history of what actually happened to an invoice.
+// No "sent"/"viewed" events are logged — this app doesn't send email or
+// serve a client-facing portal, so there's nothing real to log there yet.
+model AuditLog {
+  id        String   @id @default(uuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  type      String // "created" | "updated" | "status_changed"
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
 }

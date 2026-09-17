@@ -23,8 +23,35 @@ const invoiceSchema = z.object({
 
 // Helper: generate a simple unique invoice number per user
 async function generateInvoiceNumber(userId) {
-  const count = await prisma.invoice.count({ where: { userId } });
-  return `INV-${String(count + 1).padStart(4, '0')}`;
+  let settings = await prisma.userSettings.findUnique({ where: { userId } });
+
+  if (!settings) {
+    // First time this user is getting settings — don't blindly start at 1,
+    // in case invoices already exist (e.g. from earlier testing).
+    const existing = await prisma.invoice.findMany({
+      where: { userId },
+      select: { invoiceNumber: true }
+    });
+
+    const highest = existing.reduce((max, inv) => {
+      const match = inv.invoiceNumber.match(/(\d+)$/);
+      const num = match ? parseInt(match[1], 10) : 0;
+      return Math.max(max, num);
+    }, 0);
+
+    settings = await prisma.userSettings.create({
+      data: { userId, nextInvoiceNumber: highest + 1 }
+    });
+  }
+
+  const invoiceNumber = `${settings.invoicePrefix}${String(settings.nextInvoiceNumber).padStart(4, '0')}`;
+
+  await prisma.userSettings.update({
+    where: { userId },
+    data: { nextInvoiceNumber: { increment: 1 } }
+  });
+
+  return invoiceNumber;
 }
 
 // GET /api/invoices — list invoices, optional ?status=draft|pending|paid filter
@@ -71,10 +98,50 @@ router.get('/', async (req, res) => {
   });
 });
 
+// GET /api/invoices/stats — real counts + dollar totals across ALL invoices, not just one page
+router.get('/stats', async (req, res) => {
+  const invoices = await prisma.invoice.findMany({
+    where: { userId: req.userId },
+    select: {
+      status: true,
+      dueDate: true,
+      items: { select: { quantity: true, unitPrice: true } }
+    }
+  });
+
+  const now = new Date();
+  const counts = { all: 0, draft: 0, pending: 0, paid: 0, overdue: 0 };
+  const sums = { totalOutstanding: 0, paidThisMonth: 0, overdueTotal: 0, draftsTotal: 0 };
+
+  for (const inv of invoices) {
+    const total = inv.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+    const isOverdue = inv.status === 'pending' && new Date(inv.dueDate) < now;
+
+    counts.all++;
+
+    if (inv.status === 'draft') {
+      counts.draft++;
+      sums.draftsTotal += total;
+    } else if (inv.status === 'paid') {
+      counts.paid++;
+      sums.paidThisMonth += total;
+    } else if (isOverdue) {
+      counts.overdue++;
+      sums.overdueTotal += total;
+      sums.totalOutstanding += total;
+    } else if (inv.status === 'pending') {
+      counts.pending++;
+      sums.totalOutstanding += total;
+    }
+  }
+
+  res.json({ counts, sums });
+});
+
 // GET /api/invoices/:id — single invoice with client and items
 router.get('/:id', async (req, res) => {
   const invoice = await prisma.invoice.findUnique({
-    where: { id: Number(req.params.id) },
+    where: { id: req.params.id },
     include: { client: true, items: true }
   });
 
@@ -125,46 +192,6 @@ router.post('/', async (req, res) => {
   res.status(201).json(invoice);
 });
 
-// GET /api/invoices/stats — real counts + dollar totals across ALL invoices, not just one page
-router.get('/stats', async (req, res) => {
-  const invoices = await prisma.invoice.findMany({
-    where: { userId: req.userId },
-    select: {
-      status: true,
-      dueDate: true,
-      items: { select: { quantity: true, unitPrice: true } }
-    }
-  });
-
-  const now = new Date();
-  const counts = { all: 0, draft: 0, pending: 0, paid: 0, overdue: 0 };
-  const sums = { totalOutstanding: 0, paidThisMonth: 0, overdueTotal: 0, draftsTotal: 0 };
-
-  for (const inv of invoices) {
-    const total = inv.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
-    const isOverdue = inv.status === 'pending' && new Date(inv.dueDate) < now;
-
-    counts.all++;
-
-    if (inv.status === 'draft') {
-      counts.draft++;
-      sums.draftsTotal += total;
-    } else if (inv.status === 'paid') {
-      counts.paid++;
-      sums.paidThisMonth += total;
-    } else if (isOverdue) {
-      counts.overdue++;
-      sums.overdueTotal += total;
-      sums.totalOutstanding += total;
-    } else if (inv.status === 'pending') {
-      counts.pending++;
-      sums.totalOutstanding += total;
-    }
-  }
-
-  res.json({ counts, sums });
-});
-
 // PUT /api/invoices/:id — update invoice + replace line items
 router.put('/:id', async (req, res) => {
   const parsed = invoiceSchema.safeParse(req.body);
@@ -172,7 +199,7 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: parsed.error.errors[0].message });
   }
 
-  const existing = await prisma.invoice.findUnique({ where: { id: Number(req.params.id) } });
+  const existing = await prisma.invoice.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.userId !== req.userId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
@@ -255,7 +282,7 @@ router.patch('/:id/status', async (req, res) => {
 
 // DELETE /api/invoices/:id
 router.delete('/:id', async (req, res) => {
-  const invoice = await prisma.invoice.findUnique({ where: { id: Number(req.params.id) } });
+  const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
   if (!invoice || invoice.userId !== req.userId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
