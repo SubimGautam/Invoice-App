@@ -12,7 +12,10 @@ const profileSchema = z.object({
   phone: z.string().optional(),
   address: z.string().optional(),
   taxNumber: z.string().optional(),
-  logoUrl: z.string().optional()
+  logoUrl: z.string().optional(),
+  bankName: z.string().optional(),
+  routingNumber: z.string().optional(),
+  accountNumber: z.string().optional()
 });
 
 const settingsSchema = z.object({

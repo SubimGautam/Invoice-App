@@ -45,10 +45,10 @@ export const api = {
     request(`/api/clients/${id}`, { method: 'DELETE' }),
 
   getInvoices: (page = 1, limit = 20, status) => {
-  const params = new URLSearchParams({ page, limit });
-  if (status) params.set('status', status);
-  return request(`/api/invoices?${params}`);
-},
+    const params = new URLSearchParams({ page, limit });
+    if (status) params.set('status', status);
+    return request(`/api/invoices?${params}`);
+  },
 
   getInvoice: (id) => request(`/api/invoices/${id}`),
 
@@ -62,5 +62,13 @@ export const api = {
     request(`/api/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
   deleteInvoice: (id) =>
-    request(`/api/invoices/${id}`, { method: 'DELETE' })
+    request(`/api/invoices/${id}`, { method: 'DELETE' }),
+
+  getProfile: () => request('/api/account/profile'),
+  updateProfile: (profile) =>
+    request('/api/account/profile', { method: 'PUT', body: JSON.stringify(profile) }),
+
+  getSettings: () => request('/api/account/settings'),
+  updateSettings: (settings) =>
+    request('/api/account/settings', { method: 'PUT', body: JSON.stringify(settings) })
 };

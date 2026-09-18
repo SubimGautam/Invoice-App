@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
+import InvoiceDetail from './pages/Invoicedetail ';
 import NewInvoice from './pages/Newinvoice';
 
 function ComingSoon({ title }) {
@@ -23,6 +24,7 @@ function App() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
           <Route path="/invoices/new" element={<ProtectedRoute><NewInvoice /></ProtectedRoute>} />
+          <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><ComingSoon title="Reports" /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><ComingSoon title="Settings" /></ProtectedRoute>} />
         </Routes>

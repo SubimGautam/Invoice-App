@@ -5,6 +5,8 @@ import { api } from '../api';
 
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
 
+const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
+
 function emptyItem() {
   return { description: '', quantity: '1', unitPrice: '0' };
 }
@@ -19,16 +21,14 @@ function addDaysISO(days) {
   return d.toISOString().slice(0, 10);
 }
 
-function formatMoney(n) {
-  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-}
-
 export default function NewInvoice() {
   const navigate = useNavigate();
 
   const [clients, setClients] = useState([]);
   const [loadingClients, setLoadingClients] = useState(true);
   const [clientsError, setClientsError] = useState('');
+
+  const [currency, setCurrency] = useState('NPR');
 
   const [clientId, setClientId] = useState('');
   const [issueDate, setIssueDate] = useState(todayISO());
@@ -40,8 +40,15 @@ export default function NewInvoice() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const currencySymbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
+
+  function formatMoney(n) {
+    return `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  }
+
   useEffect(() => {
     loadClients();
+    api.getSettings().then((s) => setCurrency(s.currency)).catch(() => {});
   }, []);
 
   async function loadClients() {

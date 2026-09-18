@@ -21,38 +21,30 @@ const invoiceSchema = z.object({
   items: z.array(itemSchema).min(1, 'At least one line item is required')
 });
 
-// Helper: generate a simple unique invoice number per user
+// Helper: generate a unique invoice number per user using an atomic counter.
+// Using prisma.invoice.count() here was the old approach, but it recomputes
+// the "next" number from how many invoices currently exist — which collides
+// as soon as an invoice is deleted, two requests land close together, or the
+// count just doesn't match reality anymore. UserSettings.nextInvoiceNumber
+// exists specifically to avoid that: each call atomically increments it, so
+// two concurrent requests can never get the same value.
 async function generateInvoiceNumber(userId) {
-  let settings = await prisma.userSettings.findUnique({ where: { userId } });
+  const settings = await prisma.userSettings.upsert({
+    where: { userId },
+    update: {},
+    create: { userId }
+  });
 
-  if (!settings) {
-    // First time this user is getting settings — don't blindly start at 1,
-    // in case invoices already exist (e.g. from earlier testing).
-    const existing = await prisma.invoice.findMany({
-      where: { userId },
-      select: { invoiceNumber: true }
-    });
-
-    const highest = existing.reduce((max, inv) => {
-      const match = inv.invoiceNumber.match(/(\d+)$/);
-      const num = match ? parseInt(match[1], 10) : 0;
-      return Math.max(max, num);
-    }, 0);
-
-    settings = await prisma.userSettings.create({
-      data: { userId, nextInvoiceNumber: highest + 1 }
-    });
-  }
-
-  const invoiceNumber = `${settings.invoicePrefix}${String(settings.nextInvoiceNumber).padStart(4, '0')}`;
-
-  await prisma.userSettings.update({
+  const updated = await prisma.userSettings.update({
     where: { userId },
     data: { nextInvoiceNumber: { increment: 1 } }
   });
 
-  return invoiceNumber;
+  const numberToUse = updated.nextInvoiceNumber - 1;
+  return `${settings.invoicePrefix}${String(numberToUse).padStart(4, '0')}`;
 }
+
+const STATUS_LABEL = { draft: 'Draft', pending: 'Pending', paid: 'Paid' };
 
 // GET /api/invoices — list invoices, optional ?status=draft|pending|paid filter
 router.get('/', async (req, res) => {
@@ -138,11 +130,15 @@ router.get('/stats', async (req, res) => {
   res.json({ counts, sums });
 });
 
-// GET /api/invoices/:id — single invoice with client and items
+// GET /api/invoices/:id — single invoice with client, items, and its real audit trail
 router.get('/:id', async (req, res) => {
   const invoice = await prisma.invoice.findUnique({
     where: { id: req.params.id },
-    include: { client: true, items: true }
+    include: {
+      client: true,
+      items: true,
+      auditLogs: { orderBy: { createdAt: 'desc' } }
+    }
   });
 
   if (!invoice || invoice.userId !== req.userId) {
@@ -167,27 +163,46 @@ router.post('/', async (req, res) => {
     return res.status(404).json({ error: 'Client not found' });
   }
 
-  const invoiceNumber = await generateInvoiceNumber(req.userId);
-
-  const invoice = await prisma.invoice.create({
-    data: {
-      userId: req.userId,
-      clientId,
-      invoiceNumber,
-      status,
-      issueDate: new Date(issueDate),
-      dueDate: new Date(dueDate),
-      notes,
-      items: {
-        create: items.map(item => ({
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice
-        }))
-      }
-    },
-    include: { client: true, items: true }
-  });
+  // Self-healing: if a leftover/legacy invoiceNumber still collides (e.g. old
+  // data created under the previous count-based scheme), skip forward and
+  // retry rather than 500ing. Once nextInvoiceNumber is ahead of everything
+  // in the table this loop always succeeds on the first try.
+  let invoice;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const invoiceNumber = await generateInvoiceNumber(req.userId);
+    try {
+      invoice = await prisma.invoice.create({
+        data: {
+          userId: req.userId,
+          clientId,
+          invoiceNumber,
+          status,
+          issueDate: new Date(issueDate),
+          dueDate: new Date(dueDate),
+          notes,
+          items: {
+            create: items.map(item => ({
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice
+            }))
+          },
+          auditLogs: {
+            create: {
+              type: 'created',
+              message: `Invoice created as ${STATUS_LABEL[status]}`
+            }
+          }
+        },
+        include: { client: true, items: true, auditLogs: true }
+      });
+      break; // success
+    } catch (err) {
+      const isDuplicateInvoiceNumber = err.code === 'P2002' && err.meta?.target?.includes('invoiceNumber');
+      if (!isDuplicateInvoiceNumber || attempt === 4) throw err;
+      // otherwise loop again — generateInvoiceNumber() will hand out the next number
+    }
+  }
 
   res.status(201).json(invoice);
 });
@@ -237,6 +252,12 @@ router.put('/:id', async (req, res) => {
             quantity: item.quantity,
             unitPrice: item.unitPrice
           }))
+        },
+        auditLogs: {
+          create: {
+            type: 'updated',
+            message: 'Invoice details and line items updated'
+          }
         }
       },
       include: { client: true, items: true }
@@ -246,7 +267,7 @@ router.put('/:id', async (req, res) => {
   res.json(updated);
 });
 
-// PATCH /api/invoices/:id/status — mark a pending invoice as paid
+// PATCH /api/invoices/:id/status — move a draft to pending, or mark a pending invoice as paid
 router.patch('/:id/status', async (req, res) => {
   const statusSchema = z.object({
     status: z.enum(['draft', 'pending', 'paid'])
@@ -271,10 +292,20 @@ router.patch('/:id/status', async (req, res) => {
     updateData.paidAt = new Date();
   }
 
+  const logMessage =
+    parsed.data.status === 'paid'
+      ? 'Marked as paid'
+      : `Status changed from ${STATUS_LABEL[invoice.status]} to ${STATUS_LABEL[parsed.data.status]}`;
+
   const updated = await prisma.invoice.update({
     where: { id: invoice.id },
-    data: updateData,
-    include: { client: true, items: true }
+    data: {
+      ...updateData,
+      auditLogs: {
+        create: { type: 'status_changed', message: logMessage }
+      }
+    },
+    include: { client: true, items: true, auditLogs: { orderBy: { createdAt: 'desc' } } }
   });
 
   res.json(updated);
