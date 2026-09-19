@@ -33,7 +33,11 @@ model BusinessProfile {
   businessName  String
   email         String?
   phone         String?
-  address       String?
+  street        String?
+  city          String?
+  state         String?
+  zipCode       String?
+  country       String?
   taxNumber     String?
   logoUrl       String?
   bankName      String?
@@ -67,7 +71,11 @@ model Client {
   companyName String?
   email       String?
   phone       String?
-  address     String?
+  street      String?
+  city        String?
+  state       String?
+  zipCode     String?
+  country     String?
   taxNumber   String?
   notes       String?
   createdAt   DateTime  @default(now())
@@ -105,13 +113,11 @@ model InvoiceItem {
 }
 
 // Real, append-only history of what actually happened to an invoice.
-// No "sent"/"viewed" events are logged — this app doesn't send email or
-// serve a client-facing portal, so there's nothing real to log there yet.
 model AuditLog {
   id        String   @id @default(uuid())
   invoiceId String
   invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  type      String // "created" | "updated" | "status_changed"
+  type      String
   message   String
   createdAt DateTime @default(now())
 

@@ -11,7 +11,13 @@ function initials(name) {
   return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-const EMPTY_FORM = { name: '', email: '', phone: '', address: '' };
+const EMPTY_FORM = { name: '', email: '', phone: '', street: '', city: '', state: '', zipCode: '', country: '' };
+
+function formatAddress(c) {
+  const cityState = [c.city, c.state].filter(Boolean).join(', ');
+  const line2 = [cityState, c.zipCode].filter(Boolean).join(' ');
+  return [c.street, line2, c.country].filter(Boolean).join(', ') || null;
+}
 
 function ClientModal({ initialValues, onClose, onSubmit, saving, error }) {
   const [form, setForm] = useState(initialValues);
@@ -80,15 +86,61 @@ function ClientModal({ initialValues, onClose, onSubmit, saving, error }) {
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">
-              Address
+              Street Address
             </label>
-            <textarea
-              value={form.address}
-              onChange={(e) => update('address', e.target.value)}
-              placeholder="Austin, TX 78701"
-              rows={2}
-              className="w-full rounded-lg bg-[#f2f3ff] px-3 py-2 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] resize-none"
+            <input
+              type="text"
+              value={form.street}
+              onChange={(e) => update('street', e.target.value)}
+              placeholder="123 Client Ave"
+              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">City</label>
+              <input
+                type="text"
+                value={form.city}
+                onChange={(e) => update('city', e.target.value)}
+                placeholder="Austin"
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">State</label>
+              <input
+                type="text"
+                value={form.state}
+                onChange={(e) => update('state', e.target.value)}
+                placeholder="TX"
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Zip Code</label>
+              <input
+                type="text"
+                value={form.zipCode}
+                onChange={(e) => update('zipCode', e.target.value)}
+                placeholder="78701"
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Country</label>
+              <input
+                type="text"
+                value={form.country}
+                onChange={(e) => update('country', e.target.value)}
+                placeholder="United States"
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -283,7 +335,7 @@ export default function Clients() {
                       </td>
                       <td className="px-4 py-4 text-[#464555]">{client.email || '—'}</td>
                       <td className="px-4 py-4 text-[#464555]">{client.phone || '—'}</td>
-                      <td className="px-4 py-4 text-[#464555] max-w-[240px] truncate">{client.address || '—'}</td>
+                      <td className="px-4 py-4 text-[#464555] max-w-[240px] truncate">{formatAddress(client) || '—'}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
                           <button

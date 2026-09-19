@@ -5,6 +5,14 @@ import { api } from '../api';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
+function formatAddress(entity) {
+  if (!entity) return null;
+  const cityState = [entity.city, entity.state].filter(Boolean).join(', ');
+  const line2 = [cityState, entity.zipCode].filter(Boolean).join(' ');
+  const lines = [entity.street, line2, entity.country].filter(Boolean);
+  return lines.length ? lines : null;
+}
+
 const STATUS_STYLES = {
   paid: { dot: '#006c49', text: '#006c49', bg: 'rgba(111,251,190,0.4)', label: 'Paid' },
   pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Pending Payment' },
@@ -128,9 +136,8 @@ export default function InvoiceDetail() {
 
       doc.setFontSize(9);
       doc.setFont(undefined, 'normal');
-      const addressLines = (profile?.address || '').split('\n').filter(Boolean);
-      addressLines.slice(0, 2).forEach((line, i) => doc.text(line, margin + 5, y + 13 + i * 4.5));
-      if (profile?.email) doc.text(profile.email, margin + 5, y + 13 + addressLines.length * 4.5);
+      const headerAddressLines = [profile?.street, profile?.city, profile?.state, profile?.country].filter(Boolean);
+      headerAddressLines.slice(0, 3).forEach((line, i) => doc.text(line, margin + 5, y + 13 + i * 4.5));
 
       doc.setFontSize(20);
       doc.setFont(undefined, 'bold');
@@ -173,22 +180,54 @@ export default function InvoiceDetail() {
       });
       y = Math.max(doc.lastAutoTable.finalY, metaY + 14) + 6;
 
-      // Billing / shipping address
-      doc.setFontSize(10);
-      doc.setFont(undefined, 'bold');
-      doc.text('Billing Address', margin + 5, y);
-      doc.text('Shipping Address', margin + contentWidth / 2 + 5, y);
-      y += 4;
-      doc.setDrawColor(...gray);
-      doc.line(margin, y, margin + contentWidth, y);
-      y += 5;
+      // Billing / Shipping address — structured boxes (Street, then City|State, then Zip|Country)
+      // matching the template exactly. Since this app tracks one address per client
+      // (no separate shipping address), both boxes show the same real data rather
+      // than inventing a second location.
+      function drawAddressBox(startX, startY, width, title, entity) {
+        doc.setTextColor(20, 20, 20);
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text(title, startX, startY);
 
-      doc.setFontSize(8);
-      doc.setFont(undefined, 'normal');
-      const billingLines = (invoice.client.address || 'No address on file').split('\n');
-      billingLines.forEach((line, i) => doc.text(line, margin + 5, y + i * 4.5));
-      doc.text('Same as billing address', margin + contentWidth / 2 + 5, y);
-      y += billingLines.length * 4.5 + 8;
+        const rowH = 8;
+        const halfW = (width - 2) / 2;
+        let by = startY + 3;
+
+        function cell(cx, cy, cw, label, value) {
+          doc.setDrawColor(...gray);
+          doc.setLineWidth(0.2);
+          doc.rect(cx, cy, cw, rowH);
+          if (value) {
+            doc.setTextColor(20, 20, 20);
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(8);
+            doc.text(String(value), cx + 2, cy + rowH / 2 + 1.3, { maxWidth: cw - 4 });
+          } else {
+            doc.setTextColor(165, 165, 170);
+            doc.setFont(undefined, 'italic');
+            doc.setFontSize(8);
+            doc.text(label, cx + 2, cy + rowH / 2 + 1.3);
+          }
+        }
+
+        cell(startX, by, width, 'Street Address', entity?.street);
+        by += rowH;
+        cell(startX, by, halfW, 'City', entity?.city);
+        cell(startX + halfW + 2, by, halfW, 'State', entity?.state);
+        by += rowH;
+        cell(startX, by, halfW, 'Zip Code', entity?.zipCode);
+        cell(startX + halfW + 2, by, halfW, 'Country', entity?.country);
+        by += rowH;
+
+        return by;
+      }
+
+      const colGap = 6;
+      const colW = (contentWidth - colGap) / 2;
+      const addrBottom = drawAddressBox(margin, y, colW, 'Billing Address', invoice.client);
+      drawAddressBox(margin + colW + colGap, y, colW, 'Shipping Address', invoice.client);
+      y = addrBottom + 6;
 
       // Items table
       autoTable(doc, {
@@ -418,13 +457,17 @@ export default function InvoiceDetail() {
                 <div className="bg-[#faf8ff] rounded-xl p-4">
                   <p className="text-xs font-semibold tracking-wide uppercase text-[#464555] mb-2">Billed From</p>
                   <p className="font-semibold text-[#131b2e]">{profile?.businessName || 'Set up your business profile'}</p>
-                  {profile?.address && <p className="text-xs text-[#464555] whitespace-pre-line mt-1">{profile.address}</p>}
+                  {formatAddress(profile)?.map((line, i) => (
+                    <p key={i} className="text-xs text-[#464555] mt-0.5">{line}</p>
+                  ))}
                   {profile?.email && <p className="text-xs font-medium text-[#3525cd] mt-1">{profile.email}</p>}
                 </div>
                 <div className="bg-[#faf8ff] rounded-xl p-4">
                   <p className="text-xs font-semibold tracking-wide uppercase text-[#464555] mb-2">Billed To</p>
                   <p className="font-semibold text-[#131b2e]">{invoice.client.name}</p>
-                  {invoice.client.address && <p className="text-xs text-[#464555] whitespace-pre-line mt-1">{invoice.client.address}</p>}
+                  {formatAddress(invoice.client)?.map((line, i) => (
+                    <p key={i} className="text-xs text-[#464555] mt-0.5">{line}</p>
+                  ))}
                   {invoice.client.email && <p className="text-xs font-medium text-[#3525cd] mt-1">{invoice.client.email}</p>}
                 </div>
               </div>

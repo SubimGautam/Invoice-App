@@ -9,8 +9,12 @@ router.use(requireAuth); // every route below requires a valid token
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   email: z.string().email().optional().or(z.literal('')),
-  address: z.string().optional(),
-  phone: z.string().optional()
+  phone: z.string().optional(),
+  street: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+  country: z.string().optional()
 });
 
 // GET /api/clients — list all clients for the logged-in user

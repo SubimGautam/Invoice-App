@@ -209,7 +209,6 @@ export default function Login() {
 
             <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
               <span
-                onClick={() => setRememberMe((v) => !v)}
                 className={`size-4 rounded flex items-center justify-center transition-colors ${
                   rememberMe ? 'bg-[#3525cd]' : 'bg-[#e2e7ff]'
                 }`}

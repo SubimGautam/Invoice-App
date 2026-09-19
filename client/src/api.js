@@ -26,8 +26,8 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  signup: (name, email, password) =>
-    request('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
+  signup: (payload) =>
+    request('/api/auth/signup', { method: 'POST', body: JSON.stringify(payload) }),
 
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
@@ -70,5 +70,7 @@ export const api = {
 
   getSettings: () => request('/api/account/settings'),
   updateSettings: (settings) =>
-    request('/api/account/settings', { method: 'PUT', body: JSON.stringify(settings) })
+    request('/api/account/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+
+  getReports: (months = 12) => request(`/api/reports?months=${months}`)
 };
