@@ -28,20 +28,27 @@ const imgBatchArrow = "https://www.figma.com/api/mcp/asset/506ce05d-8e1e-49f0-8b
 
 const STATUS_STYLES = {
   paid: { dot: '#006c49', text: '#006c49', bg: 'rgba(111,251,190,0.4)', label: 'Paid' },
-  pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Pending' },
+  pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Sent' },
+  partiallyPaid: { dot: '#684000', text: '#684000', bg: 'rgba(255,234,180,0.85)', label: 'Partially Paid' },
   overdue: { dot: '#ba1a1a', text: '#ba1a1a', bg: 'rgba(255,218,214,0.4)', label: 'Overdue' },
   draft: { dot: '#777587', text: '#464555', bg: '#e2e7ff', label: 'Draft' },
 };
 
-// "Overdue" isn't a stored status — it's a pending invoice whose due date has passed.
+// "Overdue" isn't a stored status — it's a sent/partially-paid invoice whose
+// due date has passed. "Partially Paid" is derived from recorded payments vs
+// the invoice total (both attached by the server).
 function computeDisplayStatus(invoice) {
-  if (invoice.status === 'pending' && new Date(invoice.dueDate) < new Date()) {
-    return 'overdue';
-  }
-  return invoice.status;
+  const total = Number(invoice.total || 0);
+  const paid = Number(invoice.paid || 0);
+  if (invoice.status === 'paid' || (total > 0 && paid >= total - 0.001)) return 'paid';
+  if (invoice.status === 'draft') return 'draft';
+  if (new Date(invoice.dueDate) < new Date()) return 'overdue';
+  if (paid > 0) return 'partiallyPaid';
+  return 'pending';
 }
 
-// Your backend doesn't store a total — it's derived from line items.
+// Fallback when the server didn't attach a total (shouldn't happen — the list
+// endpoint computes real totals, but this keeps the render safe).
 function computeTotal(invoice) {
   return invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
 }
@@ -113,7 +120,7 @@ function KPICard({ label, value, valueColor, icon, iconBg, footnote, badge, badg
 }
 
 const DEFAULT_STATS = {
-  counts: { all: 0, draft: 0, pending: 0, paid: 0, overdue: 0 },
+  counts: { all: 0, draft: 0, pending: 0, partiallyPaid: 0, paid: 0, overdue: 0 },
   sums: { totalOutstanding: 0, paidThisMonth: 0, overdueTotal: 0, draftsTotal: 0 },
 };
 
@@ -150,7 +157,12 @@ export default function Dashboard() {
     setLoading(true);
     setError('');
     try {
-      const statusParam = activeFilter === 'all' ? undefined : activeFilter;
+      const statusParam =
+        activeFilter === 'all'
+          ? undefined
+          : activeFilter === 'partiallyPaid'
+            ? 'partially_paid'
+            : activeFilter;
       const data = await api.getInvoices(page, 20, statusParam);
       setInvoices(data.invoices);
       setPagination(data.pagination);
@@ -173,7 +185,7 @@ export default function Dashboard() {
       invoices.map((inv) => ({
         ...inv,
         displayStatus: computeDisplayStatus(inv),
-        total: computeTotal(inv),
+        total: Number(inv.total ?? computeTotal(inv)),
       })),
     [invoices]
   );
@@ -192,7 +204,8 @@ export default function Dashboard() {
   const tabs = [
     { key: 'all', label: 'All Invoices' },
     { key: 'draft', label: 'Draft' },
-    { key: 'pending', label: 'Pending' },
+    { key: 'pending', label: 'Sent' },
+    { key: 'partiallyPaid', label: 'Partially Paid' },
     { key: 'paid', label: 'Paid' },
     { key: 'overdue', label: 'Overdue' },
   ];
@@ -243,7 +256,7 @@ export default function Dashboard() {
                 value={formatMoney(stats.sums.totalOutstanding)}
                 icon={imgOutstandingIcon}
                 iconBg="#eaedff"
-                footnote={`${stats.counts.pending + stats.counts.overdue} invoices pending`}
+                footnote={`${stats.counts.pending + stats.counts.partiallyPaid + stats.counts.overdue} invoices pending`}
                 badge={<span className="flex items-center gap-1"><img src={imgUpArrowIcon} alt="" className="w-2.5 h-1.5" />Live</span>}
                 badgeColor="#006c49"
                 badgeBg="#f2f3ff"

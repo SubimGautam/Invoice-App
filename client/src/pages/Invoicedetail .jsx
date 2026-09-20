@@ -15,14 +15,22 @@ function formatAddress(entity) {
 
 const STATUS_STYLES = {
   paid: { dot: '#006c49', text: '#006c49', bg: 'rgba(111,251,190,0.4)', label: 'Paid' },
-  pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Pending Payment' },
+  pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Sent' },
+  partiallyPaid: { dot: '#684000', text: '#684000', bg: 'rgba(255,234,180,0.85)', label: 'Partially Paid' },
   overdue: { dot: '#ba1a1a', text: '#ba1a1a', bg: 'rgba(255,218,214,0.4)', label: 'Overdue' },
   draft: { dot: '#777587', text: '#464555', bg: '#e2e7ff', label: 'Draft' },
 };
 
+// "Overdue" isn't a stored status — it's a sent/partially-paid invoice whose
+// due date has passed. "Partially Paid" is derived from recorded payments.
 function computeDisplayStatus(invoice) {
-  if (invoice.status === 'pending' && new Date(invoice.dueDate) < new Date()) return 'overdue';
-  return invoice.status;
+  const total = Number(invoice.total || 0);
+  const paid = Number(invoice.paid || 0);
+  if (invoice.status === 'paid' || (total > 0 && paid >= total - 0.001)) return 'paid';
+  if (invoice.status === 'draft') return 'draft';
+  if (new Date(invoice.dueDate) < new Date()) return 'overdue';
+  if (paid > 0) return 'partiallyPaid';
+  return 'pending';
 }
 
 function fmtDate(d) {
@@ -43,7 +51,134 @@ const ACTION_LOG_LABEL = {
   created: 'Invoice created',
   updated: 'Invoice updated',
   status_changed: 'Status changed',
+  payment: 'Payment recorded',
 };
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Online Payment', 'Other'];
+
+function PaymentModal({ remaining, currencySymbol, saving, error, onClose, onSubmit }) {
+  const [amount, setAmount] = useState(String(Math.max(0, Math.round(remaining * 100) / 100)));
+  const [method, setMethod] = useState('Bank Transfer');
+  const [paymentDate, setPaymentDate] = useState(todayISO());
+  const [reference, setReference] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const fmt = (n) =>
+    `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const value = Number(amount);
+    if (!(value > 0)) return;
+    onSubmit({
+      amount: value,
+      method,
+      paymentDate,
+      reference: reference || undefined,
+      notes: notes || undefined
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <h2 className="text-lg font-bold text-[#131b2e] mb-1">Record Payment</h2>
+        <p className="text-xs text-[#464555] mb-4">
+          Remaining balance: <span className="font-semibold text-[#131b2e]">{fmt(remaining)}</span>
+        </p>
+
+        {error && (
+          <p className="mb-4 text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>
+        )}
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Amount</label>
+            <input
+              type="number"
+              required
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Date</label>
+              <input
+                type="date"
+                required
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Method</label>
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-2 text-sm text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">
+              Bank / Transaction Reference <span className="text-[#9694a8]">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="eSewa tx ID, bank ref, cheque no..."
+              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Notes (optional)</label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything worth remembering about this payment"
+              className="rounded-lg bg-[#f2f3ff] px-3 py-2 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] resize-none"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm font-semibold text-[#464555] hover:bg-gray-100 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-[#006c49] hover:bg-[#00583b] transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Recording...' : 'Record Payment'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export default function InvoiceDetail() {
   const { id } = useParams();
@@ -55,6 +190,7 @@ export default function InvoiceDetail() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
 
   useEffect(() => {
     load();
@@ -86,11 +222,14 @@ export default function InvoiceDetail() {
   }
 
   const totals = useMemo(() => {
-    if (!invoice) return { subtotal: 0, tax: 0, total: 0 };
+    if (!invoice) return { subtotal: 0, tax: 0, total: 0, taxRate: 0, paid: 0, remaining: 0 };
     const subtotal = invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
     const taxRate = Number(settings?.defaultTaxRate || 0);
     const tax = subtotal * (taxRate / 100);
-    return { subtotal, tax, total: subtotal + tax, taxRate };
+    // The server-computed total/paid are authoritative (same formula + tax rate).
+    const total = Number(invoice.total ?? subtotal + tax);
+    const paid = Number(invoice.paid || 0);
+    return { subtotal, tax, total, taxRate, paid, remaining: Math.max(0, total - paid) };
   }, [invoice, settings]);
 
   async function handleStatusChange(newStatus) {
@@ -99,6 +238,20 @@ export default function InvoiceDetail() {
     try {
       const updated = await api.updateInvoiceStatus(id, newStatus);
       setInvoice((prev) => ({ ...updated, auditLogs: updated.auditLogs || prev.auditLogs }));
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleRecordPayment(payload) {
+    setActionLoading(true);
+    setActionError('');
+    try {
+      const { invoice: updated } = await api.recordPayment({ invoiceId: id, ...payload });
+      setInvoice(updated);
+      setPaymentModalOpen(false);
     } catch (err) {
       setActionError(err.message);
     } finally {
@@ -292,7 +445,7 @@ export default function InvoiceDetail() {
       doc.setFont(undefined, 'bold');
       doc.text('Total', rightX + 3, totalsY + 6);
       doc.text(
-        invoice.status === 'paid' ? formatMoney(0) : formatMoney(totals.total),
+        formatMoney(totals.remaining),
         rightX + rightW - 3,
         totalsY + 6,
         { align: 'right' }
@@ -521,7 +674,7 @@ export default function InvoiceDetail() {
                   <div className="flex items-center justify-between bg-[#3525cd] rounded-xl px-3 py-2 mt-1">
                     <span className="text-sm text-white">Amount Due</span>
                     <span className="font-bold text-white">
-                      {invoice.status === 'paid' ? formatMoney(0) : formatMoney(totals.total)}
+                      {formatMoney(totals.remaining)}
                     </span>
                   </div>
                 </div>
@@ -604,6 +757,71 @@ export default function InvoiceDetail() {
 
             <div className="bg-white rounded-2xl shadow-sm p-6">
               <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-[#131b2e]">Payment History</h3>
+                {invoice.payments.length > 0 && (
+                  <span className="text-xs text-[#464555]">
+                    {invoice.payments.length} payment{invoice.payments.length === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between bg-[#f2f3ff] rounded-xl p-3 mb-3">
+                <div>
+                  <p className="text-xs text-[#464555]">Total</p>
+                  <p className="text-sm font-semibold text-[#131b2e]">{formatMoney(totals.total)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#464555]">Paid</p>
+                  <p className="text-sm font-semibold text-[#006c49]">{formatMoney(totals.paid)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#464555]">Remaining</p>
+                  <p className={`text-sm font-semibold ${totals.remaining > 0 ? 'text-[#ba1a1a]' : 'text-[#006c49]'}`}>
+                    {formatMoney(totals.remaining)}
+                  </p>
+                </div>
+              </div>
+
+              {invoice.payments.length === 0 ? (
+                <p className="text-xs text-[#464555] mb-3">No payments recorded yet.</p>
+              ) : (
+                <div className="flex flex-col divide-y divide-gray-100 mb-3">
+                  {invoice.payments.map((p) => (
+                    <div key={p.id} className="py-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-[#131b2e]">{formatMoney(p.amount)}</p>
+                          <p className="text-xs text-[#464555]">
+                            {fmtDate(new Date(p.paymentDate))}
+                            {p.method ? ` · ${p.method}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      {p.reference && <p className="text-xs text-[#464555] font-mono mt-0.5">Ref: {p.reference}</p>}
+                      {p.notes && <p className="text-xs text-[#464555] mt-0.5">{p.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => setPaymentModalOpen(true)}
+                disabled={invoice.status === 'paid' || invoice.status === 'draft' || actionLoading}
+                title={
+                  invoice.status === 'draft'
+                    ? 'Send the invoice before recording payments'
+                    : invoice.status === 'paid'
+                      ? 'Invoice fully paid'
+                      : ''
+                }
+                className="w-full flex items-center justify-center gap-1.5 bg-[#006c49] hover:bg-[#00583b] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                + Record Payment
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-[#131b2e]">Audit History</h3>
                 <span className="text-xs text-[#464555]">{invoice.auditLogs.length} events</span>
               </div>
@@ -643,6 +861,17 @@ export default function InvoiceDetail() {
           </div>
         </div>
       </div>
+
+      {paymentModalOpen && (
+        <PaymentModal
+          remaining={totals.remaining}
+          currencySymbol={currencySymbol}
+          saving={actionLoading}
+          error={actionError}
+          onClose={() => setPaymentModalOpen(false)}
+          onSubmit={handleRecordPayment}
+        />
+      )}
     </DashboardLayout>
   );
 }

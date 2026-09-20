@@ -9,6 +9,7 @@ import Clients from './pages/Clients';
 import NewInvoice from './pages/Newinvoice';
 import InvoiceDetail from './pages/Invoicedetail ';
 import Reports from './pages/Reports';
+import Settings from './pages/Settings';
 
 function ComingSoon({ title }) {
   return <div className="p-8 text-[#464555]">{title} — coming soon.</div>;
@@ -27,7 +28,7 @@ function App() {
           <Route path="/invoices/new" element={<ProtectedRoute><NewInvoice /></ProtectedRoute>} />
           <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><ComingSoon title="Settings" /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings/></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

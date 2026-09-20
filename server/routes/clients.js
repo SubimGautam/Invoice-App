@@ -30,7 +30,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const parsed = clientSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.errors[0].message });
+    return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
   const client = await prisma.client.create({
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const parsed = clientSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.errors[0].message });
+    return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
   const client = await prisma.client.findUnique({

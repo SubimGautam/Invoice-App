@@ -10,6 +10,7 @@ datasource db {
 enum InvoiceStatus {
   draft
   pending
+  partially_paid
   paid
 }
 
@@ -89,7 +90,7 @@ model Invoice {
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   clientId      String
   client        Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  invoiceNumber String        @unique
+  invoiceNumber String
   status        InvoiceStatus @default(draft)
   issueDate     DateTime
   dueDate       DateTime
@@ -98,9 +99,32 @@ model Invoice {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   items         InvoiceItem[]
+  payments      Payment[]
   auditLogs     AuditLog[]
 
   @@index([userId, status])
+  // Invoice numbers are generated per-user (UserSettings.nextInvoiceNumber), so
+  // uniqueness has to be scoped to the user — not global — or a new user would
+  // collide with every existing INV-0001.
+  @@unique([userId, invoiceNumber])
+}
+
+// Recorded payments against an invoice. The invoice status is derived from
+// these + the invoice total: sum(payments) < total -> partially_paid,
+// sum(payments) >= total -> paid. Methods are free-form so new Nepali
+// payment providers (eSewa, Khalti, bank transfer, etc.) don't need schema changes.
+model Payment {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount      Decimal
+  method      String
+  paymentDate DateTime @default(now())
+  reference   String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
 }
 
 model InvoiceItem {

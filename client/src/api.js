@@ -61,6 +61,9 @@ export const api = {
   updateInvoiceStatus: (id, status) =>
     request(`/api/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
+  recordPayment: (payload) =>
+    request('/api/payments', { method: 'POST', body: JSON.stringify(payload) }),
+
   deleteInvoice: (id) =>
     request(`/api/invoices/${id}`, { method: 'DELETE' }),
 

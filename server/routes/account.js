@@ -44,7 +44,7 @@ router.get('/profile', async (req, res) => {
 router.put('/profile', async (req, res) => {
   const parsed = profileSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.errors[0].message });
+    return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
   const profile = await prisma.businessProfile.upsert({
@@ -70,7 +70,7 @@ router.get('/settings', async (req, res) => {
 router.put('/settings', async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.errors[0].message });
+    return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
   const settings = await prisma.userSettings.upsert({
