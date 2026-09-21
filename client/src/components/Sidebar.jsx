@@ -8,9 +8,16 @@ const imgClientsIcon = "https://www.figma.com/api/mcp/asset/932315ee-9fa5-4f1f-b
 const imgReportsIcon = "https://www.figma.com/api/mcp/asset/8d447373-b0fa-4497-a88e-0957fe0a951c.svg";
 const imgSettingsIcon = "https://www.figma.com/api/mcp/asset/d9d332a3-93e5-4d34-ae92-ee4e0500e08a.svg";
 const imgChevron = "https://www.figma.com/api/mcp/asset/176d757b-ed9a-42af-afd7-576f39dbcd6d.svg";
+// A tiny inline "box" icon for Products (no Figma asset exists for it yet).
+const imgProductsIcon =
+  "data:image/svg+xml;charset=UTF-8," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23818095' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 8l-9-5-9 5v8l9 5 9-5V8z'/><path d='M3 8l9 5 9-5'/><path d='M12 13v8'/></svg>"
+  );
 
 const navItems = [
   { to: '/dashboard', label: 'Invoices', icon: imgInvoicesIcon },
+  { to: '/products', label: 'Products', icon: imgProductsIcon },
   { to: '/clients', label: 'Clients', icon: imgClientsIcon },
   { to: '/reports', label: 'Reports', icon: imgReportsIcon },
   { to: '/settings', label: 'Settings', icon: imgSettingsIcon },

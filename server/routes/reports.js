@@ -5,8 +5,13 @@ const requireAuth = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
-function invoiceTotal(inv) {
-  return inv.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+// Matches invoices.js money math so reports and the dashboard agree:
+//   total = (subtotal − discount) × (1 + taxRate/100)
+function invoiceTotal(inv, taxRate) {
+  const subtotal = inv.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+  const discount = Math.min(Math.max(Number(inv.discount || 0), 0), subtotal);
+  const taxable = subtotal - discount;
+  return taxable * (1 + (Number(taxRate) || 0) / 100);
 }
 
 function startOfMonth(d) {
@@ -47,7 +52,7 @@ router.get('/', async (req, res) => {
 
   // --- Snapshot metrics: current outstanding receivables + aging (not period-bound) ---
   const pendingInvoices = allInvoices.filter((inv) => inv.status === 'pending');
-  const agingReceivablesTotal = pendingInvoices.reduce((s, inv) => s + invoiceTotal(inv), 0);
+  const agingReceivablesTotal = pendingInvoices.reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
 
   const buckets = [
     { key: 'current', label: 'Current (0–30 Days)', min: 0, max: 30, total: 0, count: 0 },
@@ -58,7 +63,7 @@ router.get('/', async (req, res) => {
   for (const inv of pendingInvoices) {
     const daysOverdue = Math.max(0, Math.floor((now - new Date(inv.dueDate)) / (1000 * 60 * 60 * 24)));
     const bucket = buckets.find((b) => daysOverdue >= b.min && daysOverdue <= b.max);
-    const total = invoiceTotal(inv);
+    const total = invoiceTotal(inv, taxRate);
     bucket.total += total;
     bucket.count += 1;
   }
@@ -75,9 +80,9 @@ router.get('/', async (req, res) => {
     const inRange = allInvoices.filter(
       (inv) => inv.status !== 'draft' && new Date(inv.issueDate) >= start && new Date(inv.issueDate) < end
     );
-    const billedTotal = inRange.reduce((s, inv) => s + invoiceTotal(inv), 0);
+    const billedTotal = inRange.reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
     const paidInRange = inRange.filter((inv) => inv.status === 'paid');
-    const collectedTotal = paidInRange.reduce((s, inv) => s + invoiceTotal(inv), 0);
+    const collectedTotal = paidInRange.reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
     const collectionRate = billedTotal > 0 ? (collectedTotal / billedTotal) * 100 : 0;
 
     const dsoList = paidInRange
@@ -98,10 +103,10 @@ router.get('/', async (req, res) => {
     const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
     const billed = allInvoices
       .filter((inv) => inv.status !== 'draft' && new Date(inv.issueDate) >= mStart && new Date(inv.issueDate) < mEnd)
-      .reduce((s, inv) => s + invoiceTotal(inv), 0);
+      .reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
     const collected = allInvoices
       .filter((inv) => inv.status === 'paid' && inv.paidAt && new Date(inv.paidAt) >= mStart && new Date(inv.paidAt) < mEnd)
-      .reduce((s, inv) => s + invoiceTotal(inv), 0);
+      .reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
     chart.push({ month: monthLabel(mStart), billed, collected });
   }
 
@@ -115,7 +120,7 @@ router.get('/', async (req, res) => {
       clientMap.set(key, { id: key, name: inv.client.name, invoiceCount: 0, totalBilled: 0, realizedCash: 0, dsoSamples: [] });
     }
     const entry = clientMap.get(key);
-    const total = invoiceTotal(inv);
+    const total = invoiceTotal(inv, taxRate);
     entry.invoiceCount += 1;
     entry.totalBilled += total;
     if (inv.status === 'paid') {
@@ -138,7 +143,9 @@ router.get('/', async (req, res) => {
     .sort((a, b) => b.totalBilled - a.totalBilled)
     .slice(0, 5);
 
-  const estTaxReserve = current.collectedTotal * (taxRate / 100);
+  // collectedTotal already includes VAT, so the tax slice of a tax-inclusive
+  // amount is total × rate / (100 + rate).
+  const estTaxReserve = current.collectedTotal * (taxRate / (100 + taxRate));
 
   res.json({
     period: {

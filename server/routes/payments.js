@@ -16,10 +16,14 @@ const paymentSchema = z.object({
 });
 
 // Small money helpers shared with the invoice routes. Kept local so the
-// payments module stays self-contained.
+// payments module stays self-contained. Discount is applied before tax,
+// matching invoices.js:
+//   total = (subtotal − discount) + (subtotal − discount) × taxRate%
 function invoiceTotal(invoice, taxRate) {
   const subtotal = invoice.items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
-  return subtotal * (1 + (Number(taxRate) || 0) / 100);
+  const discount = Math.min(Math.max(Number(invoice.discount || 0), 0), subtotal);
+  const taxable = subtotal - discount;
+  return taxable * (1 + (Number(taxRate) || 0) / 100);
 }
 
 function paidSum(payments) {

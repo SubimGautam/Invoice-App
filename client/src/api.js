@@ -35,6 +35,17 @@ export const api = {
   getClients: () => request('/api/clients'),
   getInvoiceStats: () => request('/api/invoices/stats'),
 
+  getProducts: () => request('/api/products'),
+
+  createProduct: (product) =>
+    request('/api/products', { method: 'POST', body: JSON.stringify(product) }),
+
+  updateProduct: (id, product) =>
+    request(`/api/products/${id}`, { method: 'PUT', body: JSON.stringify(product) }),
+
+  deleteProduct: (id) =>
+    request(`/api/products/${id}`, { method: 'DELETE' }),
+
   createClient: (client) =>
     request('/api/clients', { method: 'POST', body: JSON.stringify(client) }),
 

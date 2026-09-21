@@ -23,6 +23,7 @@ model User {
   updatedAt       DateTime         @updatedAt
   clients         Client[]
   invoices        Invoice[]
+  products        Product[]
   businessProfile BusinessProfile?
   settings        UserSettings?
 }
@@ -95,6 +96,9 @@ model Invoice {
   issueDate     DateTime
   dueDate       DateTime
   paidAt        DateTime?
+  // Fixed-amount discount (in the business's currency), applied before tax:
+  // total = (subtotal - discount) + tax on the discounted amount.
+  discount      Decimal       @default(0)
   notes         String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -128,12 +132,41 @@ model Payment {
 }
 
 model InvoiceItem {
-  id          String  @id @default(uuid())
+  id          String   @id @default(uuid())
   invoiceId   String
-  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  // Optional link back to the saved product this line was picked from.
+  // NULL means it's a free-typed, one-off line item. Deleting a product leaves
+  // the historical line items intact.
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   description String
   quantity    Decimal
   unitPrice   Decimal
+
+  @@index([productId])
+}
+
+// A business's reusable products & services. One user's catalog is isolated
+// from every other user's. `stock` is tracked but not auto-decremented yet —
+// services businesses can just ignore it and leave it at 0.
+model Product {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  sku         String?
+  price       Decimal
+  taxRate     Decimal      @default(0)
+  unit        String?
+  stock       Int          @default(0)
+  category    String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  items       InvoiceItem[]
+
+  @@index([userId])
 }
 
 // Real, append-only history of what actually happened to an invoice.

@@ -354,5 +354,5 @@ export default function EditInvoice() {
         </form>
       </div>
     </DashboardLayout>
-  );
+  ); 
 }

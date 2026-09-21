@@ -222,14 +222,16 @@ export default function InvoiceDetail() {
   }
 
   const totals = useMemo(() => {
-    if (!invoice) return { subtotal: 0, tax: 0, total: 0, taxRate: 0, paid: 0, remaining: 0 };
+    if (!invoice) return { subtotal: 0, discount: 0, taxable: 0, tax: 0, total: 0, taxRate: 0, paid: 0, remaining: 0 };
     const subtotal = invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
     const taxRate = Number(settings?.defaultTaxRate || 0);
-    const tax = subtotal * (taxRate / 100);
-    // The server-computed total/paid are authoritative (same formula + tax rate).
-    const total = Number(invoice.total ?? subtotal + tax);
+    // Discount is applied before tax, matching the server's money math.
+    const discount = Math.min(Math.max(Number(invoice.discount || 0), 0), subtotal);
+    const taxable = subtotal - discount;
+    const tax = taxable * (taxRate / 100);
+    const total = Number(invoice.total ?? taxable + tax);
     const paid = Number(invoice.paid || 0);
-    return { subtotal, tax, total, taxRate, paid, remaining: Math.max(0, total - paid) };
+    return { subtotal, discount, taxable, tax, total, taxRate, paid, remaining: Math.max(0, total - paid) };
   }, [invoice, settings]);
 
   async function handleStatusChange(newStatus) {
@@ -433,6 +435,9 @@ export default function InvoiceDetail() {
         styles: { fontSize: 8, cellPadding: 2.5 },
         body: [
           [{ content: 'Sub Total', styles: { fontStyle: 'bold' } }, { content: formatMoney(totals.subtotal), styles: { halign: 'right' } }],
+          ...(totals.discount > 0
+            ? [[{ content: 'Discount', styles: { fontStyle: 'bold' } }, { content: `− ${formatMoney(totals.discount)}`, styles: { halign: 'right' } }]]
+            : []),
           [{ content: `Tax (${totals.taxRate}%)`, styles: { fontStyle: 'bold' } }, { content: formatMoney(totals.tax), styles: { halign: 'right' } }],
         ],
       });
@@ -662,6 +667,12 @@ export default function InvoiceDetail() {
                     <span className="text-[#464555]">Subtotal</span>
                     <span className="text-[#131b2e]">{formatMoney(totals.subtotal)}</span>
                   </div>
+                  {totals.discount > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[#464555]">Discount</span>
+                      <span className="text-[#131b2e]">− {formatMoney(totals.discount)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-[#464555]">Tax ({totals.taxRate}%)</span>
                     <span className="text-[#131b2e]">{formatMoney(totals.tax)}</span>

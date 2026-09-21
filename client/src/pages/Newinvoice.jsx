@@ -8,7 +8,7 @@ const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
 function emptyItem() {
-  return { description: '', quantity: '1', unitPrice: '0' };
+  return { description: '', quantity: '1', unitPrice: '0', productId: '' };
 }
 
 function todayISO() {
@@ -21,24 +21,170 @@ function addDaysISO(days) {
   return d.toISOString().slice(0, 10);
 }
 
+function fmtDate(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Live preview of the invoice, shown before it's saved. The invoice number is
+// assigned by the server on creation, so we show a placeholder there.
+function InvoicePreview({ profile, settings, client, items, notes, issueDate, dueDate, currencySymbol, onClose, onSave, saving }) {
+  const formatMoney = (n) =>
+    `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+  const rows = items
+    .map((item) => ({
+      ...item,
+      amount: (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+    }))
+    .filter((item) => item.description);
+
+  const subtotal = rows.reduce((s, r) => s + r.amount, 0);
+  const discount = Math.min(Math.max(Number(settings.discount || 0), 0), subtotal);
+  const taxable = subtotal - discount;
+  const tax = taxable * ((Number(settings.taxRate) || 0) / 100);
+  const total = taxable + tax;
+
+  const addressLines = [
+    [profile?.street, [profile?.city, profile?.state].filter(Boolean).join(', ')].filter(Boolean).join(', '),
+    [profile?.zipCode, profile?.country].filter(Boolean).join(' '),
+  ].filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-[#131b2e]">Invoice Preview</h2>
+          <button onClick={onClose} className="text-sm font-semibold text-[#464555] hover:underline">Close</button>
+        </div>
+
+        {(!profile || !profile.businessName) && (
+          <p className="mb-3 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+            Your business name isn't set yet — it'll be filled from Settings → Business Profile.
+          </p>
+        )}
+
+        {/* The actual invoice sheet */}
+        <div className="border border-gray-100 rounded-xl px-8 py-7 text-sm text-[#232336]">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-lg font-bold text-[#131b2e]">{profile?.businessName || 'Your Business'}</p>
+              {addressLines.length > 0 && (
+                <p className="text-xs text-[#464555] mt-0.5 leading-relaxed">{addressLines.join('\n')}</p>
+              )}
+              {profile?.phone && <p className="text-xs text-[#464555] mt-0.5">Phone: {profile.phone}</p>}
+              {profile?.taxNumber && <p className="text-xs text-[#464555] mt-0.5">PAN/VAT: {profile.taxNumber}</p>}
+            </div>
+            <div className="text-right">
+              <p className="text-xl font-bold tracking-wide text-[#131b2e]">INVOICE</p>
+              <p className="text-xs text-[#464555] mt-1 font-mono">Auto-assigned on save</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6 mt-6">
+            <div>
+              <p className="text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] mb-1">Bill To</p>
+              <p className="font-semibold text-[#131b2e]">{client?.name || 'Client'}</p>
+              {client?.email && <p className="text-xs text-[#464555]">{client.email}</p>}
+              {client?.phone && <p className="text-xs text-[#464555]">{client.phone}</p>}
+            </div>
+            <div className="text-right space-y-1 text-xs">
+              <p className="flex justify-between gap-4"><span className="text-[#464555]">Issue Date</span><span className="font-semibold text-[#131b2e]">{fmtDate(issueDate)}</span></p>
+              <p className="flex justify-between gap-4"><span className="text-[#464555]">Due Date</span><span className="font-semibold text-[#131b2e]">{fmtDate(dueDate)}</span></p>
+              <p className="flex justify-between gap-4"><span className="text-[#464555]">Status</span><span className="font-semibold text-[#3525cd]">{settings.status === 'pending' ? 'Sent' : 'Draft'}</span></p>
+            </div>
+          </div>
+
+          <table className="w-full mt-6 text-sm">
+            <thead>
+              <tr className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] border-b border-gray-100">
+                <th className="py-2">Description</th>
+                <th className="py-2 text-center">Qty</th>
+                <th className="py-2 text-right">Unit Rate</th>
+                <th className="py-2 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={4} className="py-4 text-center text-[#464555]">Add at least one line item to preview.</td></tr>
+              )}
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="py-2.5 text-[#131b2e]">{r.description}</td>
+                  <td className="py-2.5 text-center text-[#464555]">{r.quantity}</td>
+                  <td className="py-2.5 text-right text-[#464555]">{formatMoney(r.unitPrice)}</td>
+                  <td className="py-2.5 text-right font-semibold text-[#131b2e]">{formatMoney(r.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="flex justify-end mt-4">
+            <div className="w-56 flex flex-col gap-1.5">
+              <p className="flex justify-between"><span className="text-[#464555]">Subtotal</span><span>{formatMoney(subtotal)}</span></p>
+              {discount > 0 && (
+                <p className="flex justify-between"><span className="text-[#464555]">Discount</span><span>− {formatMoney(discount)}</span></p>
+              )}
+              <p className="flex justify-between"><span className="text-[#464555]">Tax ({(settings.taxRate || 0)}%)</span><span>{formatMoney(tax)}</span></p>
+              <p className="flex justify-between items-center border-t border-gray-100 pt-2 font-bold text-[#131b2e]">
+                <span>TOTAL</span><span>{formatMoney(total)}</span>
+              </p>
+            </div>
+          </div>
+
+          {notes && (
+            <div className="mt-6">
+              <p className="text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] mb-1">Notes</p>
+              <p className="text-xs text-[#464555]">{notes}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-[#464555] hover:bg-gray-100 transition-colors"
+          >
+            Keep Editing
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-[#4f46e5] hover:bg-[#4338ca] transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Creating...' : settings.status === 'pending' ? 'Create & Send' : 'Create Invoice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function NewInvoice() {
   const navigate = useNavigate();
 
   const [clients, setClients] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [loadingClients, setLoadingClients] = useState(true);
   const [clientsError, setClientsError] = useState('');
 
   const [currency, setCurrency] = useState('NPR');
+  const [taxRate, setTaxRate] = useState(0);
 
   const [clientId, setClientId] = useState('');
   const [issueDate, setIssueDate] = useState(todayISO());
   const [dueDate, setDueDate] = useState(addDaysISO(30));
   const [status, setStatus] = useState('draft');
   const [notes, setNotes] = useState('');
+  const [discount, setDiscount] = useState('');
   const [items, setItems] = useState([emptyItem()]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const currencySymbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
 
@@ -48,7 +194,15 @@ export default function NewInvoice() {
 
   useEffect(() => {
     loadClients();
-    api.getSettings().then((s) => setCurrency(s.currency)).catch(() => {});
+    api
+      .getSettings()
+      .then((s) => {
+        setCurrency(s.currency);
+        setTaxRate(Number(s.defaultTaxRate || 0));
+      })
+      .catch(() => {});
+    api.getProfile().then((p) => setProfile(p)).catch(() => {});
+    api.getProducts().then((p) => setProducts(p)).catch(() => {});
   }, []);
 
   async function loadClients() {
@@ -66,7 +220,38 @@ export default function NewInvoice() {
   }
 
   function updateItem(index, field, value) {
-    setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+    setItems((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [field]: value,
+              // Typing your own description makes the line a custom item again.
+              ...(field === 'description' ? { productId: '' } : {}),
+            }
+          : item
+      )
+    );
+  }
+
+  function pickProduct(index, productId) {
+    const product = products.find((p) => p.id === productId);
+    if (!product) {
+      setItems((prev) => prev.map((item, i) => (i === index ? { ...item, productId: '' } : item)));
+      return;
+    }
+    setItems((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              productId: product.id,
+              description: product.name,
+              unitPrice: String(product.price),
+            }
+          : item
+      )
+    );
   }
 
   function addItem() {
@@ -82,6 +267,13 @@ export default function NewInvoice() {
     [items]
   );
   const subtotal = useMemo(() => rowTotals.reduce((sum, n) => sum + n, 0), [rowTotals]);
+  const discountValue = useMemo(
+    () => Math.min(Math.max(Number(discount) || 0, 0), subtotal),
+    [discount, subtotal]
+  );
+  const taxable = subtotal - discountValue;
+  const tax = taxable * ((Number(taxRate) || 0) / 100);
+  const total = taxable + tax;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -96,6 +288,7 @@ export default function NewInvoice() {
         description: item.description.trim(),
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
+        ...(item.productId ? { productId: item.productId } : {}),
       }))
       .filter((item) => item.description);
 
@@ -116,6 +309,7 @@ export default function NewInvoice() {
         dueDate,
         notes,
         status,
+        discount: discountValue,
         items: cleanedItems,
       });
       navigate('/dashboard');
@@ -125,6 +319,8 @@ export default function NewInvoice() {
       setSubmitting(false);
     }
   }
+
+  const selectedClient = clients.find((c) => c.id === clientId);
 
   return (
     <DashboardLayout>
@@ -234,7 +430,7 @@ export default function NewInvoice() {
                 <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="bg-[#f2f3ff]">
-                      <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2 w-1/2">Description</th>
+                      <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2 w-1/2">Product / Description</th>
                       <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Qty</th>
                       <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Unit Rate</th>
                       <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Amount</th>
@@ -245,13 +441,31 @@ export default function NewInvoice() {
                     {items.map((item, i) => (
                       <tr key={i} className="border-t border-gray-50">
                         <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={item.description}
-                            onChange={(e) => updateItem(i, 'description', e.target.value)}
-                            placeholder="Design system implementation"
-                            className="w-full h-9 rounded-md px-2 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:bg-[#f2f3ff]"
-                          />
+                          <div className="flex flex-col gap-1">
+                            {products.length > 0 && (
+                              <select
+                                value={item.productId || ''}
+                                onChange={(e) => pickProduct(i, e.target.value)}
+                                className="w-full h-7 rounded-md px-2 text-xs text-[#131b2e] bg-[#f2f3ff] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                              >
+                                <option value="">Custom item</option>
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name}
+                                    {p.sku ? ` · ${p.sku}` : ''}
+                                    {p.taxRate > 0 ? ` (${p.taxRate}% tax)` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            <input
+                              type="text"
+                              value={item.description}
+                              onChange={(e) => updateItem(i, 'description', e.target.value)}
+                              placeholder="Design system implementation"
+                              className="w-full h-9 rounded-md px-2 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:bg-[#f2f3ff]"
+                            />
+                          </div>
                         </td>
                         <td className="px-4 py-2">
                           <input
@@ -303,10 +517,31 @@ export default function NewInvoice() {
                 </button>
               </div>
 
-              <div className="flex justify-end p-4 bg-[#f2f3ff]/60 border-t border-gray-50">
+              {/* Smart calculations: subtotal → discount → tax → total */}
+              <div className="flex flex-col items-end gap-2 p-4 bg-[#f2f3ff]/60 border-t border-gray-50">
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-[#464555]">Total</span>
-                  <span className="text-xl font-bold text-[#3525cd]">{formatMoney(subtotal)}</span>
+                  <label className="text-sm text-[#464555]">Discount</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={discount}
+                    onChange={(e) => setDiscount(e.target.value)}
+                    placeholder="0"
+                    className="w-32 h-9 rounded-lg bg-white border border-gray-100 px-3 text-sm text-right text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-12">
+                  <span className="text-sm text-[#464555]">Subtotal</span>
+                  <span className="text-sm font-semibold text-[#131b2e]">{formatMoney(subtotal)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-12">
+                  <span className="text-sm text-[#464555]">Tax ({taxRate}%)</span>
+                  <span className="text-sm text-[#131b2e]">{formatMoney(tax)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-12 border-t border-gray-200/70 pt-2.5">
+                  <span className="text-sm font-semibold text-[#131b2e]">TOTAL</span>
+                  <span className="text-xl font-bold text-[#3525cd]">{formatMoney(total)}</span>
                 </div>
               </div>
             </div>
@@ -319,6 +554,13 @@ export default function NewInvoice() {
                 Cancel
               </Link>
               <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-[#3525cd] bg-[#e2e7ff] hover:bg-[#d6ddfb] transition-colors"
+              >
+                Preview
+              </button>
+              <button
                 type="submit"
                 disabled={submitting}
                 className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-6 py-2.5 rounded-xl transition-colors disabled:opacity-50"
@@ -329,6 +571,22 @@ export default function NewInvoice() {
           </form>
         )}
       </div>
+
+      {previewOpen && (
+        <InvoicePreview
+          profile={profile}
+          settings={{ discount: discountValue, taxRate, status }}
+          client={selectedClient}
+          items={items}
+          notes={notes}
+          issueDate={issueDate}
+          dueDate={dueDate}
+          currencySymbol={currencySymbol}
+          onClose={() => setPreviewOpen(false)}
+          onSave={handleSubmit}
+          saving={submitting}
+        />
+      )}
     </DashboardLayout>
   );
 }

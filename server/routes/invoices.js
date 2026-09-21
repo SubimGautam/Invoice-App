@@ -9,7 +9,8 @@ router.use(requireAuth);
 const itemSchema = z.object({
   description: z.string().min(1, 'Item description is required'),
   quantity: z.number().positive('Quantity must be greater than 0'),
-  unitPrice: z.number().nonnegative('Unit price cannot be negative')
+  unitPrice: z.number().nonnegative('Unit price cannot be negative'),
+  productId: z.string().uuid('A valid product is required').optional()
 });
 
 const invoiceSchema = z.object({
@@ -17,6 +18,7 @@ const invoiceSchema = z.object({
   issueDate: z.string().datetime().or(z.string().min(1)),
   dueDate: z.string().datetime().or(z.string().min(1)),
   notes: z.string().optional(),
+  discount: z.number().nonnegative('Discount cannot be negative').optional().default(0),
   status: z.enum(['draft', 'pending']).optional().default('draft'),
   items: z.array(itemSchema).min(1, 'At least one line item is required')
 });
@@ -47,17 +49,31 @@ async function generateInvoiceNumber(userId) {
 const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partially Paid', paid: 'Paid' };
 
 // --- Money helpers ----------------------------------------------------------
-// Every dollar figure in the app is derived from line items (there's no stored
-// "total" column), so all money math lives here on the server to keep the
-// client and the API consistent.
+// Every dollar figure in the app is derived from line items + discount (there's
+// no stored "total" column), so all money math lives here on the server to keep
+// the client and the API consistent.
+//
+//   subtotal = Σ (qty × price)
+//   discount = fixed amount, clamped to subtotal
+//   taxable  = subtotal − discount
+//   tax      = taxable × taxRate%
+//   total    = taxable + tax
 function invoiceSubtotal(invoiceOrItems) {
   const items = invoiceOrItems.items || invoiceOrItems;
   return items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
 }
 
+function computeTotals(invoice, taxRate) {
+  const subtotal = invoiceSubtotal(invoice);
+  const discount = Math.min(Math.max(Number(invoice.discount || 0), 0), subtotal);
+  const taxable = subtotal - discount;
+  const tax = taxable * ((Number(taxRate) || 0) / 100);
+  return { subtotal, discount, taxable, tax, total: taxable + tax };
+}
+
 // The taxed invoice total — the number printed on the invoice and PDF.
-function invoiceTotal(invoiceOrItems, taxRate) {
-  return invoiceSubtotal(invoiceOrItems) * (1 + (Number(taxRate) || 0) / 100);
+function invoiceTotal(invoice, taxRate) {
+  return computeTotals(invoice, taxRate).total;
 }
 
 function paidSum(payments) {
@@ -110,7 +126,7 @@ router.get('/', async (req, res) => {
   // state (e.g. "Partially Paid") without re-deriving money math on the client.
   const withTotals = invoices.map((inv) => ({
     ...inv,
-    total: invoiceTotal(inv.items, taxRate),
+    total: invoiceTotal(inv, taxRate),
     paid: paidSum(inv.payments)
   }));
 
@@ -134,6 +150,7 @@ router.get('/stats', async (req, res) => {
       select: {
         status: true,
         dueDate: true,
+        discount: true,
         items: { select: { quantity: true, unitPrice: true } },
         payments: { select: { amount: true, paymentDate: true } }
       }
@@ -148,7 +165,7 @@ router.get('/stats', async (req, res) => {
   const sums = { totalOutstanding: 0, paidThisMonth: 0, overdueTotal: 0, draftsTotal: 0 };
 
   for (const inv of invoices) {
-    const total = invoiceTotal(inv.items, taxRate);
+    const total = invoiceTotal(inv, taxRate);
     const paid = paidSum(inv.payments);
     const remaining = Math.max(0, total - paid);
     const isPaid = inv.status === 'paid' || (total > 0 && paid >= total - MONEY_EPSILON);
@@ -209,7 +226,7 @@ router.get('/:id', async (req, res) => {
 
   res.json({
     ...invoice,
-    total: invoiceTotal(invoice.items, taxRate),
+    total: invoiceTotal(invoice, taxRate),
     paid: paidSum(invoice.payments)
   });
 });
@@ -221,7 +238,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
-  const { clientId, issueDate, dueDate, notes, status, items } = parsed.data;
+  const { clientId, issueDate, dueDate, notes, status, discount, items } = parsed.data;
 
   // Confirm the client belongs to this user before attaching an invoice to it
   const client = await prisma.client.findUnique({ where: { id: clientId } });
@@ -231,6 +248,12 @@ router.post('/', async (req, res) => {
 
   const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
+
+  // A discount bigger than the goods themselves doesn't make sense.
+  const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
+  if (discount > subtotal) {
+    return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
+  }
 
   // Self-healing: if a leftover/legacy invoiceNumber still collides (e.g. old
   // data created under the previous count-based scheme), skip forward and
@@ -248,12 +271,14 @@ router.post('/', async (req, res) => {
           status,
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
+          discount,
           notes,
           items: {
             create: items.map(item => ({
               description: item.description,
               quantity: item.quantity,
-              unitPrice: item.unitPrice
+              unitPrice: item.unitPrice,
+              productId: item.productId || null
             }))
           },
           auditLogs: {
@@ -275,7 +300,7 @@ router.post('/', async (req, res) => {
 
   res.status(201).json({
     ...invoice,
-    total: invoiceTotal(invoice.items, taxRate),
+    total: invoiceTotal(invoice, taxRate),
     paid: 0
   });
 });
@@ -296,7 +321,7 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: 'Invoices with recorded payments cannot be edited' });
   }
 
-  const { clientId, issueDate, dueDate, notes, status, items } = parsed.data;
+  const { clientId, issueDate, dueDate, notes, status, discount, items } = parsed.data;
 
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client || client.userId !== req.userId) {
@@ -305,6 +330,11 @@ router.put('/:id', async (req, res) => {
 
   const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
+
+  const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
+  if (discount > subtotal) {
+    return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
+  }
 
   // Replace items: delete old ones, create the new set, in a single transaction
   const [, , updated] = await prisma.$transaction([
@@ -316,6 +346,7 @@ router.put('/:id', async (req, res) => {
         status,
         issueDate: new Date(issueDate),
         dueDate: new Date(dueDate),
+        discount,
         notes
       }
     }),
@@ -326,7 +357,8 @@ router.put('/:id', async (req, res) => {
           create: items.map(item => ({
             description: item.description,
             quantity: item.quantity,
-            unitPrice: item.unitPrice
+            unitPrice: item.unitPrice,
+            productId: item.productId || null
           }))
         },
         auditLogs: {
@@ -342,7 +374,7 @@ router.put('/:id', async (req, res) => {
 
   res.json({
     ...updated,
-    total: invoiceTotal(updated.items, taxRate),
+    total: invoiceTotal(updated, taxRate),
     // Editable invoices are draft/sent only (payments block edits), so paid is always 0 here.
     paid: 0
   });
@@ -399,7 +431,7 @@ router.patch('/:id/status', async (req, res) => {
   // When marking as paid via this shortcut, backfill a payment record for the
   // remaining balance so customer balances and reports see the cash.
   const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
-  const total = invoiceTotal(invoice.items, Number(settings.defaultTaxRate || 0));
+  const total = invoiceTotal(invoice, Number(settings.defaultTaxRate || 0));
   const paid = paidSum(invoice.payments);
   const remaining = Math.max(0, total - paid);
   const paymentsToRecord = parsed.data.status === 'paid' && remaining > MONEY_EPSILON
