@@ -27,12 +27,18 @@ function timeAgo(dateStr) {
 }
 
 export default function TopBar() {
-  const { user, workspace, applySession, logout } = useAuth();
+  const { user, workspace, applySession, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [feed, setFeed] = useState([]);
   const [unread, setUnread] = useState(0);
   const boxRef = useRef(null);
+
+  // Profile menu (photo upload/remove).
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const profileRef = useRef(null);
 
   // Workspace switcher state.
   const [wsOpen, setWsOpen] = useState(false);
@@ -68,6 +74,16 @@ export default function TopBar() {
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
+
+  // Same for the profile menu.
+  useEffect(() => {
+    if (!profileOpen) return;
+    function onClick(e) {
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [profileOpen]);
 
   // Same for the workspace switcher.
   useEffect(() => {
@@ -198,6 +214,38 @@ export default function TopBar() {
       setUnread(0);
     } catch {
       /* ignore */
+    }
+  }
+
+  // Profile picture upload/remove (lives in the topbar profile menu).
+  async function handleAvatarUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarBusy(true);
+    setAvatarError('');
+    try {
+      const { user: updated } = await api.uploadAvatar(file);
+      updateUser({ avatarUrl: updated.avatarUrl });
+      setProfileOpen(false);
+    } catch (err) {
+      setAvatarError(err.message);
+    } finally {
+      setAvatarBusy(false);
+      e.target.value = ''; // allow re-selecting the same file next time
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarBusy(true);
+    setAvatarError('');
+    try {
+      const { user: updated } = await api.removeAvatar();
+      updateUser({ avatarUrl: updated.avatarUrl });
+      setProfileOpen(false);
+    } catch (err) {
+      setAvatarError(err.message);
+    } finally {
+      setAvatarBusy(false);
     }
   }
 
@@ -363,9 +411,66 @@ export default function TopBar() {
           <img src={imgHelpIcon} alt="" className="w-4 h-4" />
         </button>
         <div className="w-px h-6 bg-[rgba(199,196,216,0.4)] mx-1" />
-        <div className="flex items-center gap-2">
-          <Avatar url={user?.avatarUrl} name={user?.name} />
-          <img src={imgChevron} alt="" className="w-2 h-1.5 opacity-60 hidden sm:block" />
+        <div className="relative" ref={profileRef}>
+          <button
+            onClick={() => {
+              setProfileOpen((o) => !o);
+              setAvatarError('');
+            }}
+            aria-label="Profile menu"
+            title="Profile"
+            className="flex items-center gap-1.5 rounded-xl hover:bg-gray-100 transition-colors p-1"
+          >
+            <Avatar url={user?.avatarUrl} name={user?.name} />
+            <img src={imgChevron} alt="" className="w-2 h-1.5 opacity-60 hidden sm:block" />
+          </button>
+
+          {profileOpen && (
+            <div
+              className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-[rgba(199,196,216,0.5)] shadow-[0px_12px_32px_rgba(15,23,42,0.12)] overflow-hidden"
+              data-testid="profile-panel"
+            >
+              <div className="px-4 py-3 border-b border-[rgba(199,196,216,0.3)]">
+                <p className="text-sm font-semibold text-[#131b2e] truncate">{user?.name || 'Account'}</p>
+                <p className="text-xs font-mono text-[#464555] truncate">{user?.email}</p>
+              </div>
+
+              {avatarError && (
+                <p className="mx-3 mt-2 text-xs text-[#ba1a1a] bg-red-50 px-2 py-1.5 rounded-lg">{avatarError}</p>
+              )}
+
+              <div className="p-2">
+                <label
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-[#131b2e] hover:bg-[#f8f7ff] transition-colors cursor-pointer ${avatarBusy ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M12 5v14m-7-7h14" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {avatarBusy ? 'Uploading…' : user?.avatarUrl ? 'Change profile picture' : 'Upload profile picture'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    onChange={handleAvatarUpload}
+                    disabled={avatarBusy}
+                    className="hidden"
+                  />
+                </label>
+                {user?.avatarUrl && (
+                  <button
+                    onClick={handleAvatarRemove}
+                    disabled={avatarBusy}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-[#ba1a1a] hover:bg-red-50 transition-colors disabled:opacity-50 text-left"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <path d="M4 7h16M10 11v6m4-6v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {avatarBusy ? 'Removing…' : 'Remove profile picture'}
+                  </button>
+                )}
+              </div>
+              <p className="px-4 pb-3 text-[11px] text-[#9694a8]">PNG, JPG, WEBP or GIF up to 3 MB.</p>
+            </div>
+          )}
         </div>
         <div className="w-px h-6 bg-[rgba(199,196,216,0.4)] mx-1" />
         <button

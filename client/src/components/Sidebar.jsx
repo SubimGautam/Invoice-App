@@ -7,7 +7,6 @@ import imgDashboardIcon from '../assets/Dashboard.png';
 import imgProductsIcon from '../assets/Product.png';
 import imgClientsIcon from '../assets/Client.png';
 import imgPaymentsIcon from '../assets/Payments.svg';
-import imgBellIcon from '../assets/Bell.svg';
 import imgRecurringIcon from '../assets/Recurring.png';
 import imgReportsIcon from '../assets/Reports.png';
 import imgSettingsIcon from '../assets/Setting.png';
@@ -21,7 +20,6 @@ const navItems = [
   { to: '/products', label: 'Products', icon: imgProductsIcon },
   { to: '/clients', label: 'Clients', icon: imgClientsIcon },
   { to: '/payments', label: 'Payments', icon: imgPaymentsIcon },
-  { to: '/notifications', label: 'Notifications', icon: imgBellIcon },
   { to: '/recurring', label: 'Recurring', icon: imgRecurringIcon },
   { to: '/reports', label: 'Reports', icon: imgReportsIcon },
   { to: '/settings', label: 'Settings', icon: imgSettingsIcon },
