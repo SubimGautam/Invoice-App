@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
@@ -37,19 +38,23 @@ function Toggle({ checked, onChange, label, description }) {
   );
 }
 
-function Field({ label, ...props }) {
+function Field({ label, disabled, ...props }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">{label}</label>
       <input
         {...props}
-        className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+        disabled={disabled}
+        className={`w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
       />
     </div>
   );
 }
 
 export default function Settings() {
+  const { workspace, canWrite, canManage, updateWorkspace } = useAuth();
+  const readOnly = !canWrite;
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -63,6 +68,13 @@ export default function Settings() {
   const [settingsError, setSettingsError] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
+  const [emailStatus, setEmailStatus] = useState(null);
+
+  const [workspaceName, setWorkspaceName] = useState(workspace?.name || '');
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState('');
+  const [workspaceSaved, setWorkspaceSaved] = useState(false);
+
   useEffect(() => {
     load();
   }, []);
@@ -71,13 +83,36 @@ export default function Settings() {
     setLoading(true);
     setLoadError('');
     try {
-      const [prof, sett] = await Promise.all([api.getProfile(), api.getSettings()]);
+      const [prof, sett, emailStatusRes] = await Promise.all([
+        api.getProfile(),
+        api.getSettings(),
+        api.getEmailStatus(),
+      ]);
       if (prof) setProfile({ ...EMPTY_PROFILE, ...prof });
       setSettings(sett);
+      setEmailStatus(emailStatusRes);
+      setWorkspaceName(workspace?.name || '');
     } catch (err) {
       setLoadError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRenameWorkspace(e) {
+    e.preventDefault();
+    setWorkspaceSaving(true);
+    setWorkspaceError('');
+    setWorkspaceSaved(false);
+    try {
+      const res = await api.renameWorkspace(workspaceName);
+      updateWorkspace({ name: res.name });
+      setWorkspaceSaved(true);
+      setTimeout(() => setWorkspaceSaved(false), 3000);
+    } catch (err) {
+      setWorkspaceError(err.message);
+    } finally {
+      setWorkspaceSaving(false);
     }
   }
 
@@ -141,6 +176,13 @@ export default function Settings() {
         </div>
         <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1 mb-6">Settings</h1>
 
+        {readOnly && (
+          <div className="mb-6 bg-[#fdf0d8] text-[#9a6b00] text-sm px-4 py-3 rounded-xl">
+            You're viewing settings in <span className="font-semibold">read-only</span> mode. Ask an admin or owner
+            to make changes to this workspace.
+          </div>
+        )}
+
         {loadError && (
           <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl flex items-center justify-between">
             {loadError}
@@ -154,6 +196,40 @@ export default function Settings() {
           </div>
         ) : (
           <div className="flex flex-col gap-6">
+            {/* Workspace */}
+            {canManage && (
+              <form onSubmit={handleRenameWorkspace} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-6">
+                <h2 className="font-bold text-[#131b2e] mb-1">Workspace</h2>
+                <p className="text-xs text-[#464555] mb-5">
+                  The name shown across the app, in the sidebar, and on invites. Renaming doesn't affect your data.
+                </p>
+
+                {workspaceError && (
+                  <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{workspaceError}</div>
+                )}
+
+                <div className="flex items-end gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[220px]">
+                    <Field
+                      label="Workspace Name"
+                      value={workspaceName}
+                      onChange={(e) => setWorkspaceName(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 pb-0.5">
+                    {workspaceSaved && <span className="text-xs font-semibold text-[#006c49]">Saved ✓</span>}
+                    <button
+                      type="submit"
+                      disabled={workspaceSaving}
+                      className="bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {workspaceSaving ? 'Saving...' : 'Save Name'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
             {/* Business Profile */}
             <form onSubmit={handleSaveProfile} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-6">
               <h2 className="font-bold text-[#131b2e] mb-1">Business Profile</h2>
@@ -165,6 +241,7 @@ export default function Settings() {
                 <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{profileError}</div>
               )}
 
+              <fieldset disabled={readOnly} className="border-0 p-0 m-0 min-w-0">
               <div className="grid sm:grid-cols-2 gap-4 mb-5">
                 <Field
                   label="Business Name"
@@ -222,16 +299,23 @@ export default function Settings() {
                 value={profile.logoUrl || ''}
                 onChange={(e) => updateProfileField('logoUrl', e.target.value)}
               />
+              </fieldset>
 
-              <div className="flex items-center gap-3 justify-end pt-5">
-                {profileSaved && <span className="text-xs font-semibold text-[#006c49]">Saved ✓</span>}
-                <button
-                  type="submit"
-                  disabled={profileSaving}
-                  className="bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50"
-                >
-                  {profileSaving ? 'Saving...' : 'Save Business Profile'}
-                </button>
+              <div className="pt-5">
+                {canWrite ? (
+                  <div className="flex items-center gap-3 justify-end">
+                    {profileSaved && <span className="text-xs font-semibold text-[#006c49]">Saved ✓</span>}
+                    <button
+                      type="submit"
+                      disabled={profileSaving}
+                      className="bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {profileSaving ? 'Saving...' : 'Save Business Profile'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#9694a8]">Read-only for your role.</p>
+                )}
               </div>
             </form>
 
@@ -246,6 +330,7 @@ export default function Settings() {
                 <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{settingsError}</div>
               )}
 
+              <fieldset disabled={readOnly} className="border-0 p-0 m-0 min-w-0">
               <div className="grid sm:grid-cols-2 gap-4 mb-6">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Currency</label>
@@ -302,19 +387,33 @@ export default function Settings() {
                   onChange={(v) => updateSettingsField('reminderNotifications', v)}
                 />
               </div>
-              <p className="text-xs text-[#9694a8] mt-2">
-                These preferences are saved, but this app doesn't send emails yet — nothing is dispatched based on them.
-              </p>
+              </fieldset>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full ${emailStatus?.configured ? 'bg-[#e5f7ee] text-[#0e7a41]' : 'bg-[#fdf0d8] text-[#9a6b00]'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${emailStatus?.configured ? 'bg-[#0e7a41]' : 'bg-[#9a6b00]'}`} />
+                  SMTP {emailStatus?.configured ? 'configured' : 'not configured'}
+                </span>
+                <span className="text-xs text-[#9694a8]">
+                  Send invoices &amp; reminders from the invoice page and Dashboard. Without SMTP credentials emails are
+                  simulated and logged instead of dispatched.
+                </span>
+              </div>
 
-              <div className="flex items-center gap-3 justify-end pt-5">
-                {settingsSaved && <span className="text-xs font-semibold text-[#006c49]">Saved ✓</span>}
-                <button
-                  type="submit"
-                  disabled={settingsSaving}
-                  className="bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50"
-                >
-                  {settingsSaving ? 'Saving...' : 'Save Invoicing Defaults'}
-                </button>
+              <div className="pt-5">
+                {canWrite ? (
+                  <div className="flex items-center gap-3 justify-end">
+                    {settingsSaved && <span className="text-xs font-semibold text-[#006c49]">Saved ✓</span>}
+                    <button
+                      type="submit"
+                      disabled={settingsSaving}
+                      className="bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {settingsSaving ? 'Saving...' : 'Save Invoicing Defaults'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#9694a8]">Read-only for your role.</p>
+                )}
               </div>
             </form>
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
@@ -52,6 +53,8 @@ const ACTION_LOG_LABEL = {
   updated: 'Invoice updated',
   status_changed: 'Status changed',
   payment: 'Payment recorded',
+  sent: 'Invoice emailed',
+  reminder: 'Reminder sent',
 };
 
 function todayISO() {
@@ -182,36 +185,41 @@ function PaymentModal({ remaining, currencySymbol, saving, error, onClose, onSub
 
 export default function InvoiceDetail() {
   const { id } = useParams();
+  const { canWrite } = useAuth();
 
   const [invoice, setInvoice] = useState(null);
   const [profile, setProfile] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [emailStatus, setEmailStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
 
   useEffect(() => {
     load();
   }, [id]);
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     setError('');
     try {
-      const [inv, prof, sett] = await Promise.all([
+      const [inv, prof, sett, emailStatusRes] = await Promise.all([
         api.getInvoice(id),
         api.getProfile(),
         api.getSettings(),
+        api.getEmailStatus(),
       ]);
       setInvoice(inv);
       setProfile(prof);
       setSettings(sett);
+      setEmailStatus(emailStatusRes);
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -237,9 +245,54 @@ export default function InvoiceDetail() {
   async function handleStatusChange(newStatus) {
     setActionLoading(true);
     setActionError('');
+    setSuccessMessage('');
     try {
       const updated = await api.updateInvoiceStatus(id, newStatus);
       setInvoice((prev) => ({ ...updated, auditLogs: updated.auditLogs || prev.auditLogs }));
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Emails the invoice to the client. Drafts are moved to Pending first, then
+  // the email goes out. The server replies with simulated:true when SMTP isn't
+  // configured so the flow works end-to-end without credentials.
+  async function handleSendInvoice() {
+    setActionLoading(true);
+    setActionError('');
+    setSuccessMessage('');
+    try {
+      if (invoice.status === 'draft') {
+        await api.updateInvoiceStatus(id, 'pending');
+      }
+      const result = await api.sendInvoiceEmail(id);
+      setSuccessMessage(
+        result.simulated
+          ? 'Email simulated — SMTP isn\'t configured. Delivery is logged in the server console + email history.'
+          : `Invoice sent to ${invoice.client.email}.`
+      );
+      await load(true);
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleSendReminder() {
+    setActionLoading(true);
+    setActionError('');
+    setSuccessMessage('');
+    try {
+      const result = await api.sendReminderEmail(id);
+      setSuccessMessage(
+        result.simulated
+          ? 'Reminder simulated — SMTP isn\'t configured. Delivery is logged in the server console + email history.'
+          : `Reminder sent to ${invoice.client.email}.`
+      );
+      await load(true);
     } catch (err) {
       setActionError(err.message);
     } finally {
@@ -520,50 +573,78 @@ export default function InvoiceDetail() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {invoice.status === 'draft' && (
-              <button
-                onClick={() => handleStatusChange('pending')}
-                disabled={actionLoading}
-                className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-sm text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
-              >
-                {actionLoading ? 'Sending...' : 'Send Invoice'}
-              </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {canWrite && (
+              <>
+                {invoice.status === 'draft' ? (
+                  <button
+                    onClick={handleSendInvoice}
+                    disabled={actionLoading || !invoice.client.email}
+                    title={invoice.client.email ? '' : `Add an email to ${invoice.client.name} to send invoices`}
+                    className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-sm text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Sending...' : 'Save & Send Invoice'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSendInvoice}
+                    disabled={actionLoading || !invoice.client.email}
+                    title={invoice.client.email ? '' : `Add an email to ${invoice.client.name} to send invoices`}
+                    className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-sm text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Sending...' : 'Email Invoice'}
+                  </button>
+                )}
+                {invoice.status === 'pending' && (
+                  <button
+                    onClick={() => handleStatusChange('paid')}
+                    disabled={actionLoading}
+                    className="flex items-center gap-1.5 bg-[#006c49] hover:bg-[#00583b] shadow-sm text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    ✓ {actionLoading ? 'Updating...' : 'Mark as Paid'}
+                  </button>
+                )}
+                {invoice.status !== 'draft' && invoice.status !== 'paid' && (
+                  <button
+                    onClick={handleSendReminder}
+                    disabled={actionLoading || !invoice.client.email}
+                    title={invoice.client.email ? '' : `Add an email to ${invoice.client.name} to send reminders`}
+                    className="flex items-center gap-1.5 bg-[#f2f3ff] hover:bg-[#e2e7ff] text-sm font-semibold text-[#464555] px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Sending...' : 'Send Reminder'}
+                  </button>
+                )}
+              </>
             )}
-            {invoice.status === 'pending' && (
-              <button
-                onClick={() => handleStatusChange('paid')}
-                disabled={actionLoading}
-                className="flex items-center gap-1.5 bg-[#006c49] hover:bg-[#00583b] shadow-sm text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
-              >
-                ✓ {actionLoading ? 'Updating...' : 'Mark as Paid'}
-              </button>
-            )}
-            <button
-              disabled
-              title="Coming soon"
-              className="flex items-center gap-1.5 bg-[#eaedff] text-sm font-medium text-[#131b2e] px-4 py-2 rounded-xl opacity-50 cursor-not-allowed"
-            >
-              Send Reminder
-            </button>
             <button
               onClick={handleDownloadPdf}
               className="flex items-center gap-1.5 bg-[#f2f3ff] hover:bg-[#e2e7ff] text-sm text-[#464555] px-4 py-2 rounded-xl transition-colors"
             >
               ↓ PDF
             </button>
-            <button
-              disabled
-              title="Coming soon"
-              className="flex items-center justify-center bg-[#f2f3ff] rounded-xl size-9 opacity-50 cursor-not-allowed"
-            >
-              🖊
-            </button>
+            {canWrite && (
+              <Link
+                to={`/invoices/${invoice.id}/edit`}
+                className="flex items-center justify-center bg-[#f2f3ff] hover:bg-[#e2e7ff] rounded-xl size-9 transition-colors"
+                title="Edit invoice"
+              >
+                🖊
+              </Link>
+            )}
           </div>
+          {canWrite && !invoice.client.email && (
+            <p className="text-xs text-[#9694a8] mt-2">
+              Add an email address to <span className="font-semibold text-[#464555]">{invoice.client.name}</span> to enable
+              sending invoices and reminders to them.
+            </p>
+          )}
         </div>
 
         {actionError && (
           <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{actionError}</div>
+        )}
+        {successMessage && (
+          <div className="mb-4 bg-[#e5f7ee] text-[#0e7a41] text-sm px-4 py-3 rounded-xl">{successMessage}</div>
         )}
 
         <div className="grid lg:grid-cols-12 gap-8">
@@ -753,6 +834,18 @@ export default function InvoiceDetail() {
                 </div>
                 <div className="flex items-center justify-between bg-[#f2f3ff] rounded-xl p-3">
                   <div>
+                    <p className="text-xs text-[#464555]">Email Status</p>
+                    <p className="text-sm font-semibold text-[#131b2e]">
+                      {invoice.status === 'draft'
+                        ? 'Draft — not sent'
+                        : invoice.sentAt
+                          ? `Sent ${fmtDate(invoice.sentAt)}`
+                          : 'Not sent yet'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between bg-[#f2f3ff] rounded-xl p-3">
+                  <div>
                     <p className="text-xs text-[#464555]">Line Items</p>
                     <p className="text-sm font-semibold text-[#131b2e]">{invoice.items.length}</p>
                   </div>
@@ -815,20 +908,22 @@ export default function InvoiceDetail() {
                 </div>
               )}
 
-              <button
-                onClick={() => setPaymentModalOpen(true)}
-                disabled={invoice.status === 'paid' || invoice.status === 'draft' || actionLoading}
-                title={
-                  invoice.status === 'draft'
-                    ? 'Send the invoice before recording payments'
-                    : invoice.status === 'paid'
-                      ? 'Invoice fully paid'
-                      : ''
-                }
-                className="w-full flex items-center justify-center gap-1.5 bg-[#006c49] hover:bg-[#00583b] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                + Record Payment
-              </button>
+              {canWrite && (
+                <button
+                  onClick={() => setPaymentModalOpen(true)}
+                  disabled={invoice.status === 'paid' || invoice.status === 'draft' || actionLoading}
+                  title={
+                    invoice.status === 'draft'
+                      ? 'Send the invoice before recording payments'
+                      : invoice.status === 'paid'
+                        ? 'Invoice fully paid'
+                        : ''
+                  }
+                  className="w-full flex items-center justify-center gap-1.5 bg-[#006c49] hover:bg-[#00583b] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  + Record Payment
+                </button>
+              )}
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm p-6">
@@ -857,16 +952,14 @@ export default function InvoiceDetail() {
 
             <div className="rounded-2xl p-6 text-white relative overflow-hidden" style={{ background: 'linear-gradient(150deg, #4f46e5 0%, #3525cd 100%)' }}>
               <div className="absolute -right-4 -bottom-4 size-28 rounded-full bg-white/10 blur-2xl" />
-              <p className="font-bold mb-2 relative">⏰ Automated Follow-ups</p>
+              <p className="font-bold mb-2 relative">📬 Email Delivery</p>
               <p className="text-xs text-[#dad7ff] relative">
-                Reminder automation isn't enabled in this app yet — "Send Reminder" above is a placeholder
-                until real email delivery is wired up.
+                Send invoices and reminders straight to clients, and let the app flag overdue invoices in
+                your notification bell. Without SMTP credentials emails are simulated and logged — add SMTP
+                vars to the server's <span className="font-mono">.env</span> to send for real.
               </p>
               <div className="flex items-center justify-between border-t border-white/20 pt-3 mt-4 relative">
-                <span className="text-xs">Status: Not configured</span>
-                <span className="text-xs underline opacity-60 cursor-not-allowed" title="Coming soon">
-                  Configure cadence
-                </span>
+                <span className="text-xs">{emailStatus?.configured ? 'SMTP: configured' : 'SMTP: not configured — simulated'}</span>
               </div>
             </div>
           </div>

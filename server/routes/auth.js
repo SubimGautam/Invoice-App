@@ -25,7 +25,12 @@ const loginSchema = z.object({
   password: z.string().min(1)
 });
 
-// POST /api/auth/signup — creates the user AND their business profile together
+function issueToken(userId, workspaceId) {
+  return jwt.sign({ userId, workspaceId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+}
+
+// POST /api/auth/signup — creates the user, their first workspace (they become
+// the owner), the workspace settings, and the business profile, all atomically.
 router.post('/signup', async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -45,39 +50,41 @@ router.post('/signup', async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const user = await prisma.user.create({
-    data: {
-      name,
-      email,
-      passwordHash,
-      businessProfile: {
-        create: {
-          businessName,
-          email: businessEmail || null,
-          phone: businessPhone || null,
-          street: street || null,
-          city: city || null,
-          state: state || null,
-          zipCode: zipCode || null,
-          country: country || null
-        }
+  const { user, workspace } = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({ data: { name, email, passwordHash } });
+    const workspace = await tx.workspace.create({
+      data: { name: businessName || `${name}'s Workspace`, createdBy: user.id }
+    });
+    await tx.membership.create({
+      data: { workspaceId: workspace.id, userId: user.id, role: 'owner' }
+    });
+    await tx.workspaceSettings.create({ data: { workspaceId: workspace.id } });
+    await tx.businessProfile.create({
+      data: {
+        workspaceId: workspace.id,
+        userId: user.id,
+        businessName,
+        email: businessEmail || null,
+        phone: businessPhone || null,
+        street: street || null,
+        city: city || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        country: country || null
       }
-    }
+    });
+    return { user, workspace };
   });
 
-  const token = jwt.sign(
-    { userId: user.id },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
   res.status(201).json({
-    token,
-    user: { id: user.id, name: user.name, email: user.email }
+    token: issueToken(user.id, workspace.id),
+    user: { id: user.id, name: user.name, email: user.email },
+    workspace: { id: workspace.id, name: workspace.name, role: 'owner' }
   });
 });
 
-// POST /api/auth/login
+// POST /api/auth/login — resolves the user's earliest workspace as the active
+// one. Multi-workspace users can switch afterwards via /api/workspaces/activate.
 router.post('/login', async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -96,15 +103,19 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  const token = jwt.sign(
-    { userId: user.id },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  const membership = await prisma.membership.findFirst({
+    where: { userId: user.id },
+    orderBy: { createdAt: 'asc' },
+    include: { workspace: true }
+  });
+  if (!membership) {
+    return res.status(401).json({ error: 'No workspace found for this account' });
+  }
 
   res.json({
-    token,
-    user: { id: user.id, email: user.email }
+    token: issueToken(user.id, membership.workspaceId),
+    user: { id: user.id, name: user.name, email: user.email },
+    workspace: { id: membership.workspace.id, name: membership.workspace.name, role: membership.role }
   });
 });
 

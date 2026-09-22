@@ -2,6 +2,8 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../prisma');
 const requireAuth = require('../middleware/auth');
+const requireRole = require('../middleware/roles');
+const { smtpConfigured } = require('../lib/mailer');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -32,54 +34,61 @@ const settingsSchema = z.object({
   reminderNotifications: z.boolean().optional()
 });
 
-// GET /api/account/profile
+// GET /api/account/profile — the ACTIVE workspace's business identity.
 router.get('/profile', async (req, res) => {
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: req.userId }
+    where: { workspaceId: req.workspaceId }
   });
   res.json(profile); // null if not yet created — frontend treats that as "not set up"
 });
 
-// PUT /api/account/profile — create or update (upsert)
-router.put('/profile', async (req, res) => {
+// PUT /api/account/profile — create or update (upsert). The business identity
+// is shared by the whole workspace, so only owner/admin can change it.
+router.put('/profile', requireRole('owner', 'admin'), async (req, res) => {
   const parsed = profileSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
   const profile = await prisma.businessProfile.upsert({
-    where: { userId: req.userId },
+    where: { workspaceId: req.workspaceId },
     update: parsed.data,
-    create: { ...parsed.data, userId: req.userId }
+    create: { ...parsed.data, workspaceId: req.workspaceId, userId: req.userId }
   });
 
   res.json(profile);
 });
 
-// GET /api/account/settings — auto-creates defaults on first access
+// GET /api/account/settings — workspace settings, auto-created on first access.
 router.get('/settings', async (req, res) => {
-  const settings = await prisma.userSettings.upsert({
-    where: { userId: req.userId },
+  const settings = await prisma.workspaceSettings.upsert({
+    where: { workspaceId: req.workspaceId },
     update: {},
-    create: { userId: req.userId }
+    create: { workspaceId: req.workspaceId }
   });
   res.json(settings);
 });
 
-// PUT /api/account/settings
-router.put('/settings', async (req, res) => {
+// PUT /api/account/settings — owner/admin only (team-shared numbers/counters).
+router.put('/settings', requireRole('owner', 'admin'), async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
-  const settings = await prisma.userSettings.upsert({
-    where: { userId: req.userId },
+  const settings = await prisma.workspaceSettings.upsert({
+    where: { workspaceId: req.workspaceId },
     update: parsed.data,
-    create: { ...parsed.data, userId: req.userId }
+    create: { ...parsed.data, workspaceId: req.workspaceId }
   });
 
   res.json(settings);
+});
+
+// GET /api/account/email-status — whether SMTP is configured. Drives UI hints
+// ("Emails will actually be sent" vs "Simulated in console").
+router.get('/email-status', async (req, res) => {
+  res.json({ configured: smtpConfigured() });
 });
 
 module.exports = router;

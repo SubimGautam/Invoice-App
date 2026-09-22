@@ -5,14 +5,10 @@ const requireAuth = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
-// Matches invoices.js money math so reports and the dashboard agree:
+// Shared money math — see lib/money.js. Discount is applied before tax so
+// reports and the dashboard agree:
 //   total = (subtotal − discount) × (1 + taxRate/100)
-function invoiceTotal(inv, taxRate) {
-  const subtotal = inv.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
-  const discount = Math.min(Math.max(Number(inv.discount || 0), 0), subtotal);
-  const taxable = subtotal - discount;
-  return taxable * (1 + (Number(taxRate) || 0) / 100);
-}
+const { invoiceTotal } = require('../lib/money');
 
 function startOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -41,9 +37,9 @@ router.get('/', async (req, res) => {
   const prevPeriodEnd = periodStart; // exclusive
 
   const [settings, allInvoices] = await Promise.all([
-    prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } }),
+    prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } }),
     prisma.invoice.findMany({
-      where: { userId: req.userId },
+      where: { workspaceId: req.workspaceId },
       include: { items: true, client: { select: { id: true, name: true } } }
     })
   ]);

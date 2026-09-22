@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
 
@@ -164,6 +164,7 @@ function InvoicePreview({ profile, settings, client, items, notes, issueDate, du
 
 export default function NewInvoice() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [clients, setClients] = useState([]);
   const [products, setProducts] = useState([]);
@@ -211,7 +212,14 @@ export default function NewInvoice() {
     try {
       const data = await api.getClients();
       setClients(data);
-      if (data.length > 0) setClientId((prev) => prev || data[0].id);
+      // A ?client=id query param (from the customer detail page) pre-selects
+      // that client; otherwise default to the first one.
+      const preselect = searchParams.get('client');
+      if (preselect && data.some((c) => c.id === preselect)) {
+        setClientId(preselect);
+      } else if (data.length > 0) {
+        setClientId((prev) => prev || data[0].id);
+      }
     } catch (err) {
       setClientsError(err.message);
     } finally {

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import StatusPill from '../components/StatusPill';
+import { computeDisplayStatus, displayStatusLabel } from '../components/status';
 
 // --- Icons (Figma assets) ---
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
@@ -17,35 +20,12 @@ const imgCalendarIcon = "https://www.figma.com/api/mcp/asset/b96139e6-8d12-4c65-
 const imgCaretDown = "https://www.figma.com/api/mcp/asset/2d626d50-ffe8-4056-b11d-6b5096c58daa.svg";
 const imgFilterIcon = "https://www.figma.com/api/mcp/asset/e294acdb-83d7-4814-b055-8336c80f8470.svg";
 const imgEyeIcon = "https://www.figma.com/api/mcp/asset/2b718d92-a786-4ad2-b01b-c61e33aa6449.svg";
-const imgSendIcon = "https://www.figma.com/api/mcp/asset/9d5cae4b-f8cd-4214-bdf3-398c9690c9cc.svg";
 const imgDotsIcon = "https://www.figma.com/api/mcp/asset/b2d929a9-4804-4ad3-a21d-792a9d07b793.svg";
-const imgResendIcon = "https://www.figma.com/api/mcp/asset/9f5b80f5-ce66-4e24-831f-cd8134a47611.svg";
 const imgEditIcon = "https://www.figma.com/api/mcp/asset/f90f6c04-d63a-4ed6-8974-d2ee8d7665b6.svg";
 const imgChevronLeft = "https://www.figma.com/api/mcp/asset/98207ea4-983b-4392-b8d2-a1360da77d63.svg";
 const imgChevronRightSm = "https://www.figma.com/api/mcp/asset/f9953c37-3a07-4c53-afcd-9557c56ab77a.svg";
 const imgSettlementChart = "https://www.figma.com/api/mcp/asset/15ade0b3-cf68-4cd6-83e7-a881dd6bd882.svg";
 const imgBatchArrow = "https://www.figma.com/api/mcp/asset/506ce05d-8e1e-49f0-8bbc-1f0d608ed5bf.svg";
-
-const STATUS_STYLES = {
-  paid: { dot: '#006c49', text: '#006c49', bg: 'rgba(111,251,190,0.4)', label: 'Paid' },
-  pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Sent' },
-  partiallyPaid: { dot: '#684000', text: '#684000', bg: 'rgba(255,234,180,0.85)', label: 'Partially Paid' },
-  overdue: { dot: '#ba1a1a', text: '#ba1a1a', bg: 'rgba(255,218,214,0.4)', label: 'Overdue' },
-  draft: { dot: '#777587', text: '#464555', bg: '#e2e7ff', label: 'Draft' },
-};
-
-// "Overdue" isn't a stored status — it's a sent/partially-paid invoice whose
-// due date has passed. "Partially Paid" is derived from recorded payments vs
-// the invoice total (both attached by the server).
-function computeDisplayStatus(invoice) {
-  const total = Number(invoice.total || 0);
-  const paid = Number(invoice.paid || 0);
-  if (invoice.status === 'paid' || (total > 0 && paid >= total - 0.001)) return 'paid';
-  if (invoice.status === 'draft') return 'draft';
-  if (new Date(invoice.dueDate) < new Date()) return 'overdue';
-  if (paid > 0) return 'partiallyPaid';
-  return 'pending';
-}
 
 // Fallback when the server didn't attach a total (shouldn't happen — the list
 // endpoint computes real totals, but this keeps the render safe).
@@ -64,19 +44,6 @@ function formatMoney(n) {
 
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
-}
-
-function StatusPill({ status }) {
-  const s = STATUS_STYLES[status];
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono font-semibold"
-      style={{ backgroundColor: s.bg, color: s.text }}
-    >
-      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.dot }} />
-      {s.label}
-    </span>
-  );
 }
 
 function Avatar({ name, status }) {
@@ -125,14 +92,19 @@ const DEFAULT_STATS = {
 };
 
 export default function Dashboard() {
+  const { canWrite, canManage } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState(DEFAULT_STATS);
+  const [exporting, setExporting] = useState(false);
+  const [runningBatch, setRunningBatch] = useState(false);
+  const [menuId, setMenuId] = useState(null);
 
   // Real counts + dollar totals across the WHOLE account — independent of pagination/filter.
   useEffect(() => {
@@ -180,6 +152,109 @@ export default function Dashboard() {
     setPage(1);
   }
 
+  // Real CSV export of every invoice in the account (walks all pages).
+  async function handleExport() {
+    setExporting(true);
+    setError('');
+    try {
+      let all = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const data = await api.getInvoices(page, 50);
+        all = all.concat(data.invoices);
+        totalPages = data.pagination.totalPages;
+        page += 1;
+      } while (page <= totalPages);
+
+      const esc = (v) => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const rows = all.map((inv) => {
+        const total = Number(inv.total || 0);
+        const paid = Number(inv.paid || 0);
+        const ds = computeDisplayStatus(inv);
+        return [
+          inv.invoiceNumber,
+          inv.client.name,
+          inv.client.email || '',
+          formatDate(inv.issueDate),
+          formatDate(inv.dueDate),
+          displayStatusLabel(ds),
+          total.toFixed(2),
+          paid.toFixed(2),
+          Math.max(0, total - paid).toFixed(2),
+        ]
+          .map(esc)
+          .join(',');
+      });
+      const csv = [
+        'Invoice #,Client,Email,Issue Date,Due Date,Status,Total,Paid,Remaining',
+        ...rows,
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `billflow-invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(`Export failed: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // "Mark as Paid" shortcut from the row menu — the server backfills a payment
+  // record so the payment history stays complete.
+  async function handleMarkPaid(inv) {
+    setMenuId(null);
+    if (!window.confirm(`Mark invoice ${inv.invoiceNumber} as paid? A payment record will be added automatically.`)) return;
+    try {
+      await api.updateInvoiceStatus(inv.id, 'paid');
+      await Promise.all([loadStats(), loadInvoices()]);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDeleteInvoice(inv) {
+    setMenuId(null);
+    if (!window.confirm(`Delete invoice ${inv.invoiceNumber}? Its payment history will be deleted too.`)) return;
+    try {
+      await api.deleteInvoice(inv.id);
+      await Promise.all([loadStats(), loadInvoices()]);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // Emails a reminder to every overdue client in one click. The server picks the
+  // invoices, so the client just reports the result.
+  async function handleBatchReminders() {
+    setRunningBatch(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api.batchReminders();
+      setNotice(
+        result.simulated
+          ? `${result.sent} reminder${result.sent === 1 ? '' : 's'} simulated — SMTP isn't configured, so delivery is logged instead of sent.`
+          : `${result.sent} reminder${result.sent === 1 ? '' : 's'} emailed to overdue clients.`
+      );
+      await loadStats();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRunningBatch(false);
+    }
+  }
+
   const invoicesWithStatus = useMemo(
     () =>
       invoices.map((inv) => ({
@@ -223,9 +298,13 @@ export default function Dashboard() {
             <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Invoices</h1>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 bg-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] text-sm font-semibold text-[#131b2e] px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors">
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-1.5 bg-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] text-sm font-semibold text-[#131b2e] px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-60"
+            >
               <img src={imgExportIcon} alt="" className="w-3 h-3" />
-              Export CSV
+              {exporting ? 'Exporting...' : 'Export CSV'}
             </button>
             <Link
               to="/invoices/new"
@@ -242,6 +321,10 @@ export default function Dashboard() {
             {error}
             <button onClick={loadInvoices} className="font-semibold underline">Retry</button>
           </div>
+        )}
+
+        {notice && (
+          <div className="mt-4 bg-[#f2f3ff] text-[#3525cd] text-sm px-4 py-3 rounded-xl">{notice}</div>
         )}
 
         {loading ? (
@@ -382,13 +465,15 @@ export default function Dashboard() {
                           <span className="font-mono font-semibold text-[#3525cd]">#{inv.invoiceNumber}</span>
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex items-center gap-2">
+                          <Link to={`/clients/${inv.client.id}`} className="flex items-center gap-2 group">
                             <Avatar name={inv.client.name} status={inv.displayStatus} />
                             <div>
-                              <p className="font-semibold text-[#131b2e]">{inv.client.name}</p>
+                              <p className="font-semibold text-[#131b2e] group-hover:text-[#3525cd] transition-colors">
+                                {inv.client.name}
+                              </p>
                               <p className="text-xs text-[#464555]">{inv.client.email || '—'}</p>
                             </div>
-                          </div>
+                          </Link>
                         </td>
                         <td className="px-4 py-4 text-[#464555]">{formatDate(inv.issueDate)}</td>
                         <td className={`px-4 py-4 ${inv.displayStatus === 'overdue' ? 'text-[#ba1a1a] font-medium' : 'text-[#464555]'}`}>
@@ -398,18 +483,61 @@ export default function Dashboard() {
                         <td className="px-4 py-4 text-center">
                           <StatusPill status={inv.displayStatus} />
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 relative">
                           <div className="flex items-center justify-end gap-1 opacity-80">
-                            <Link to={`/invoices/${inv.id}`} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors inline-block">
+                            <Link
+                              to={inv.displayStatus === 'draft' ? `/invoices/${inv.id}/edit` : `/invoices/${inv.id}`}
+                              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors inline-block"
+                            >
                               <img src={inv.displayStatus === 'draft' ? imgEditIcon : imgEyeIcon} alt="" className="w-4 h-3.5" />
                             </Link>
-                            <button className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                              <img src={inv.displayStatus === 'overdue' ? imgResendIcon : imgSendIcon} alt="" className="w-3.5 h-3" />
-                            </button>
-                            <button className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                            <button
+                              onClick={() => setMenuId(menuId === inv.id ? null : inv.id)}
+                              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                              aria-label="More actions"
+                            >
                               <img src={imgDotsIcon} alt="" className="w-1 h-3" />
                             </button>
                           </div>
+                          {menuId === inv.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setMenuId(null)} />
+                              <div className="absolute right-6 top-9 z-50 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 text-sm">
+                                <Link
+                                  to={`/invoices/${inv.id}`}
+                                  onClick={() => setMenuId(null)}
+                                  className="block px-4 py-2 text-[#131b2e] hover:bg-gray-50 transition-colors"
+                                >
+                                  View Invoice
+                                </Link>
+                                {canWrite && inv.status !== 'paid' && inv.status !== 'partially_paid' && (
+                                  <Link
+                                    to={`/invoices/${inv.id}/edit`}
+                                    onClick={() => setMenuId(null)}
+                                    className="block px-4 py-2 text-[#131b2e] hover:bg-gray-50 transition-colors"
+                                  >
+                                    Edit
+                                  </Link>
+                                )}
+                                {canWrite && inv.displayStatus !== 'draft' && inv.displayStatus !== 'paid' && (
+                                  <button
+                                    onClick={() => handleMarkPaid(inv)}
+                                    className="block w-full text-left px-4 py-2 text-[#3525cd] hover:bg-gray-50 transition-colors"
+                                  >
+                                    Mark as Paid
+                                  </button>
+                                )}
+                                {canManage && (
+                                  <button
+                                    onClick={() => handleDeleteInvoice(inv)}
+                                    className="block w-full text-left px-4 py-2 text-[#ba1a1a] hover:bg-gray-50 transition-colors"
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -481,14 +609,18 @@ export default function Dashboard() {
                       : 'No overdue invoices right now — nothing to chase.'}
                   </p>
                 </div>
-                <button
-                  disabled
-                  title="Coming in a later phase"
-                  className="mt-4 flex items-center justify-center gap-1.5 bg-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] text-sm font-semibold text-[#3525cd] px-4 py-2 rounded-xl opacity-60 cursor-not-allowed"
-                >
-                  Run Batch Reminders
-                  <img src={imgBatchArrow} alt="" className="w-4 h-3.5" />
-                </button>
+                {canWrite ? (
+                  <button
+                    onClick={handleBatchReminders}
+                    disabled={runningBatch || stats.counts.overdue === 0}
+                    className="mt-4 flex items-center justify-center gap-1.5 bg-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] text-sm font-semibold text-[#3525cd] px-4 py-2 rounded-xl hover:bg-[#fafbff] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {runningBatch ? 'Sending...' : 'Run Batch Reminders'}
+                    <img src={imgBatchArrow} alt="" className="w-4 h-3.5" />
+                  </button>
+                ) : (
+                  <p className="mt-4 text-xs text-[#464555]">Viewers have read-only access — an admin or staff member can run reminders.</p>
+                )}
               </div>
             </div>
           </>

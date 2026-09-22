@@ -17,6 +17,10 @@ app.use('/api/payments', require('./routes/payments'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/account', require('./routes/account'));
 app.use('/api/reports', require('./routes/reports'));
+app.use('/api/workspaces', require('./routes/workspaces'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/emails', require('./routes/emails'));
+app.use('/api/recurring', require('./routes/recurring'));
 // Health check route — confirms the server is alive
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -37,3 +41,7 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Phase 4: in-process recurring + overdue scheduler.
+const { startScheduler } = require('./lib/scheduler');
+startScheduler();

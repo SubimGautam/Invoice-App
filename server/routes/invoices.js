@@ -2,6 +2,8 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../prisma');
 const requireAuth = require('../middleware/auth');
+const requireRole = require('../middleware/roles');
+const { notifyWorkspace } = require('../lib/notify');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -18,69 +20,21 @@ const invoiceSchema = z.object({
   issueDate: z.string().datetime().or(z.string().min(1)),
   dueDate: z.string().datetime().or(z.string().min(1)),
   notes: z.string().optional(),
-  discount: z.number().nonnegative('Discount cannot be negative').optional().default(0),
+  discount: z.number().nonnegative('Discount cannot be negative').optional(),
   status: z.enum(['draft', 'pending']).optional().default('draft'),
   items: z.array(itemSchema).min(1, 'At least one line item is required')
 });
 
-// Helper: generate a unique invoice number per user using an atomic counter.
-// Using prisma.invoice.count() here was the old approach, but it recomputes
-// the "next" number from how many invoices currently exist — which collides
-// as soon as an invoice is deleted, two requests land close together, or the
-// count just doesn't match reality anymore. UserSettings.nextInvoiceNumber
-// exists specifically to avoid that: each call atomically increments it, so
-// two concurrent requests can never get the same value.
-async function generateInvoiceNumber(userId) {
-  const settings = await prisma.userSettings.upsert({
-    where: { userId },
-    update: {},
-    create: { userId }
-  });
-
-  const updated = await prisma.userSettings.update({
-    where: { userId },
-    data: { nextInvoiceNumber: { increment: 1 } }
-  });
-
-  const numberToUse = updated.nextInvoiceNumber - 1;
-  return `${settings.invoicePrefix}${String(numberToUse).padStart(4, '0')}`;
-}
+// Atomic per-workspace invoice numbering (WorkspaceSettings.nextInvoiceNumber).
+const generateInvoiceNumber = require('../lib/invoicenumber');
 
 const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partially Paid', paid: 'Paid' };
 
 // --- Money helpers ----------------------------------------------------------
-// Every dollar figure in the app is derived from line items + discount (there's
-// no stored "total" column), so all money math lives here on the server to keep
-// the client and the API consistent.
-//
-//   subtotal = Σ (qty × price)
-//   discount = fixed amount, clamped to subtotal
-//   taxable  = subtotal − discount
-//   tax      = taxable × taxRate%
-//   total    = taxable + tax
-function invoiceSubtotal(invoiceOrItems) {
-  const items = invoiceOrItems.items || invoiceOrItems;
-  return items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
-}
-
-function computeTotals(invoice, taxRate) {
-  const subtotal = invoiceSubtotal(invoice);
-  const discount = Math.min(Math.max(Number(invoice.discount || 0), 0), subtotal);
-  const taxable = subtotal - discount;
-  const tax = taxable * ((Number(taxRate) || 0) / 100);
-  return { subtotal, discount, taxable, tax, total: taxable + tax };
-}
-
-// The taxed invoice total — the number printed on the invoice and PDF.
-function invoiceTotal(invoice, taxRate) {
-  return computeTotals(invoice, taxRate).total;
-}
-
-function paidSum(payments) {
-  return (payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
-}
-
-const MONEY_EPSILON = 0.001;
+// Shared module — see lib/money.js. Every dollar figure in the app is derived
+// from line items + discount (there's no stored "total" column), so all money
+// math lives in one place to keep the client and the API consistent.
+const { invoiceTotal, paidSum, MONEY_EPSILON } = require('../lib/money');
 
 // GET /api/invoices — list invoices, optional ?status=draft|pending|partially_paid|paid|overdue filter
 router.get('/', async (req, res) => {
@@ -90,7 +44,7 @@ router.get('/', async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
   const skip = (page - 1) * limit;
 
-  const where = { userId: req.userId };
+  const where = { workspaceId: req.workspaceId };
   if (status) {
     const validStatuses = ['draft', 'pending', 'partially_paid', 'paid', 'overdue'];
     if (!validStatuses.includes(status)) {
@@ -117,7 +71,7 @@ router.get('/', async (req, res) => {
       take: limit
     }),
     prisma.invoice.count({ where }),
-    prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } })
+    prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } })
   ]);
 
   const taxRate = Number(settings.defaultTaxRate || 0);
@@ -144,9 +98,9 @@ router.get('/', async (req, res) => {
 // GET /api/invoices/stats — real counts + dollar totals across ALL invoices, not just one page
 router.get('/stats', async (req, res) => {
   const [settings, invoices] = await Promise.all([
-    prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } }),
+    prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } }),
     prisma.invoice.findMany({
-      where: { userId: req.userId },
+      where: { workspaceId: req.workspaceId },
       select: {
         status: true,
         dueDate: true,
@@ -217,11 +171,11 @@ router.get('/:id', async (req, res) => {
     }
   });
 
-  if (!invoice || invoice.userId !== req.userId) {
+  if (!invoice || invoice.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
 
-  const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
+  const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
 
   res.json({
@@ -231,8 +185,8 @@ router.get('/:id', async (req, res) => {
   });
 });
 
-// POST /api/invoices — create invoice + line items together
-router.post('/', async (req, res) => {
+// POST /api/invoices — create invoice + line items together (staff+)
+router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const parsed = invoiceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -242,16 +196,16 @@ router.post('/', async (req, res) => {
 
   // Confirm the client belongs to this user before attaching an invoice to it
   const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client || client.userId !== req.userId) {
+  if (!client || client.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Client not found' });
   }
 
-  const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
+  const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
 
   // A discount bigger than the goods themselves doesn't make sense.
   const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
-  if (discount > subtotal) {
+  if ((discount ?? 0) > subtotal) {
     return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
   }
 
@@ -261,17 +215,18 @@ router.post('/', async (req, res) => {
   // in the table this loop always succeeds on the first try.
   let invoice;
   for (let attempt = 0; attempt < 5; attempt++) {
-    const invoiceNumber = await generateInvoiceNumber(req.userId);
+    const invoiceNumber = await generateInvoiceNumber(req.workspaceId);
     try {
       invoice = await prisma.invoice.create({
         data: {
+          workspaceId: req.workspaceId,
           userId: req.userId,
           clientId,
           invoiceNumber,
           status,
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
-          discount,
+          discount: discount ?? 0,
           notes,
           items: {
             create: items.map(item => ({
@@ -298,6 +253,15 @@ router.post('/', async (req, res) => {
     }
   }
 
+  await notifyWorkspace({
+    workspaceId: req.workspaceId,
+    excludeUserId: req.userId,
+    type: 'invoice_created',
+    title: 'New invoice',
+    message: `${invoice.invoiceNumber} created for ${invoice.client.name}`,
+    invoiceId: invoice.id
+  });
+
   res.status(201).json({
     ...invoice,
     total: invoiceTotal(invoice, taxRate),
@@ -305,8 +269,8 @@ router.post('/', async (req, res) => {
   });
 });
 
-// PUT /api/invoices/:id — update invoice + replace line items
-router.put('/:id', async (req, res) => {
+// PUT /api/invoices/:id — update invoice + replace line items (staff+)
+router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const parsed = invoiceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -324,15 +288,15 @@ router.put('/:id', async (req, res) => {
   const { clientId, issueDate, dueDate, notes, status, discount, items } = parsed.data;
 
   const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client || client.userId !== req.userId) {
+  if (!client || client.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Client not found' });
   }
 
-  const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
+  const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
 
   const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
-  if (discount > subtotal) {
+  if ((discount ?? 0) > subtotal) {
     return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
   }
 
@@ -346,7 +310,7 @@ router.put('/:id', async (req, res) => {
         status,
         issueDate: new Date(issueDate),
         dueDate: new Date(dueDate),
-        discount,
+        discount: discount ?? existing.discount,
         notes
       }
     }),
@@ -382,8 +346,8 @@ router.put('/:id', async (req, res) => {
 
 // PATCH /api/invoices/:id/status — move a draft to sent (pending), or mark a
 // sent/partially-paid invoice as paid. Marking it paid also records a payment
-// for the remaining balance so the payment history stays complete.
-router.patch('/:id/status', async (req, res) => {
+// for the remaining balance so the payment history stays complete. (staff+)
+router.patch('/:id/status', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const statusSchema = z.object({
     status: z.enum(['draft', 'pending', 'partially_paid', 'paid'])
   });
@@ -408,7 +372,7 @@ router.patch('/:id/status', async (req, res) => {
     where: { id: req.params.id },
     include: { items: true, payments: true }
   });
-  if (!invoice || invoice.userId !== req.userId) {
+  if (!invoice || invoice.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
 
@@ -430,7 +394,7 @@ router.patch('/:id/status', async (req, res) => {
 
   // When marking as paid via this shortcut, backfill a payment record for the
   // remaining balance so customer balances and reports see the cash.
-  const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
+  const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const total = invoiceTotal(invoice, Number(settings.defaultTaxRate || 0));
   const paid = paidSum(invoice.payments);
   const remaining = Math.max(0, total - paid);
@@ -455,6 +419,17 @@ router.patch('/:id/status', async (req, res) => {
     include: { client: true, items: true, payments: true, auditLogs: { orderBy: { createdAt: 'desc' } } }
   });
 
+  if (parsed.data.status === 'paid') {
+    await notifyWorkspace({
+      workspaceId: req.workspaceId,
+      excludeUserId: req.userId,
+      type: 'invoice_paid',
+      title: 'Invoice paid',
+      message: `${updated.invoiceNumber} marked as paid`,
+      invoiceId: updated.id
+    });
+  }
+
   res.json({
     ...updated,
     total,
@@ -462,10 +437,10 @@ router.patch('/:id/status', async (req, res) => {
   });
 });
 
-// DELETE /api/invoices/:id
-router.delete('/:id', async (req, res) => {
+// DELETE /api/invoices/:id (owner/admin only — destructive)
+router.delete('/:id', requireRole('owner', 'admin'), async (req, res) => {
   const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
-  if (!invoice || invoice.userId !== req.userId) {
+  if (!invoice || invoice.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
 

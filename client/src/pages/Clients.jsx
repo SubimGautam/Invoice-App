@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
+import ClientModal from '../components/ClientModal';
 import { api } from '../api';
 
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
 const imgSearchIcon = "https://www.figma.com/api/mcp/asset/43fbf5d1-f4ec-4e81-ad71-b7cdabc39b32.svg";
 const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
+
+const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
 function initials(name) {
   if (!name) return '?';
@@ -19,157 +24,13 @@ function formatAddress(c) {
   return [c.street, line2, c.country].filter(Boolean).join(', ') || null;
 }
 
-function ClientModal({ initialValues, onClose, onSubmit, saving, error }) {
-  const [form, setForm] = useState(initialValues);
-  const isEdit = Boolean(initialValues.id);
-
-  function update(field, value) {
-    setForm((f) => ({ ...f, [field]: value }));
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    onSubmit(form);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-        <h2 className="text-lg font-bold text-[#131b2e] mb-4">
-          {isEdit ? 'Edit Client' : 'New Client'}
-        </h2>
-
-        {error && (
-          <p className="mb-4 text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">
-              Name
-            </label>
-            <input
-              type="text"
-              required
-              value={form.name}
-              onChange={(e) => update('name', e.target.value)}
-              placeholder="Acme Global Ltd."
-              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">
-              Email
-            </label>
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => update('email', e.target.value)}
-              placeholder="ap@acmeglobal.com"
-              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">
-              Phone
-            </label>
-            <input
-              type="text"
-              value={form.phone}
-              onChange={(e) => update('phone', e.target.value)}
-              placeholder="+1 555 000 0000"
-              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">
-              Street Address
-            </label>
-            <input
-              type="text"
-              value={form.street}
-              onChange={(e) => update('street', e.target.value)}
-              placeholder="123 Client Ave"
-              className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">City</label>
-              <input
-                type="text"
-                value={form.city}
-                onChange={(e) => update('city', e.target.value)}
-                placeholder="Austin"
-                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">State</label>
-              <input
-                type="text"
-                value={form.state}
-                onChange={(e) => update('state', e.target.value)}
-                placeholder="TX"
-                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Zip Code</label>
-              <input
-                type="text"
-                value={form.zipCode}
-                onChange={(e) => update('zipCode', e.target.value)}
-                placeholder="78701"
-                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Country</label>
-              <input
-                type="text"
-                value={form.country}
-                onChange={(e) => update('country', e.target.value)}
-                placeholder="United States"
-                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-[#464555] hover:bg-gray-100 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-[#4f46e5] hover:bg-[#4338ca] transition-colors disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Add Client'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 export default function Clients() {
+  const { canWrite, canManage } = useAuth();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [currency, setCurrency] = useState('NPR');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -177,8 +38,15 @@ export default function Clients() {
   const [formError, setFormError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
 
+  const currencySymbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
+
+  function formatMoney(n) {
+    return `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  }
+
   useEffect(() => {
     loadClients();
+    api.getSettings().then((s) => setCurrency(s.currency)).catch(() => {});
   }, []);
 
   async function loadClients() {
@@ -225,7 +93,13 @@ export default function Clients() {
   }
 
   async function handleDelete(client) {
-    if (!window.confirm(`Delete ${client.name}? This can't be undone.`)) return;
+    if (
+      !window.confirm(
+        `Delete ${client.name}? This also deletes all of their invoices and payment history. This can't be undone.`
+      )
+    ) {
+      return;
+    }
     setDeletingId(client.id);
     try {
       await api.deleteClient(client.id);
@@ -259,13 +133,15 @@ export default function Clients() {
             </div>
             <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Clients</h1>
           </div>
-          <button
-            onClick={openNewModal}
-            className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors"
-          >
-            <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
-            New Client
-          </button>
+          {canWrite && (
+            <button
+              onClick={openNewModal}
+              className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors"
+            >
+              <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
+              New Client
+            </button>
+          )}
         </div>
 
         {error && (
@@ -295,20 +171,21 @@ export default function Clients() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-sm">
+              <table className="w-full min-w-[820px] text-sm">
                 <thead>
                   <tr className="bg-[#f2f3ff]">
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-6 py-2">Client</th>
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Email</th>
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Phone</th>
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Address</th>
+                    <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Outstanding</th>
                     <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-6 py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="text-center text-[#464555] text-sm py-10">
+                      <td colSpan={6} className="text-center text-[#464555] text-sm py-10">
                         {clients.length === 0 ? (
                           <>
                             No clients yet.{' '}
@@ -323,38 +200,53 @@ export default function Clients() {
                       </td>
                     </tr>
                   )}
-                  {filtered.map((client) => (
-                    <tr key={client.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-[#e2e7ff] flex items-center justify-center shrink-0">
-                            <span className="text-[13px] font-semibold text-[#3525cd]">{initials(client.name)}</span>
+                  {filtered.map((client) => {
+                    const outstanding = Number(client.stats?.outstanding || 0);
+                    return (
+                      <tr key={client.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <Link to={`/clients/${client.id}`} className="flex items-center gap-2 group">
+                            <div className="w-8 h-8 rounded-full bg-[#e2e7ff] flex items-center justify-center shrink-0">
+                              <span className="text-[13px] font-semibold text-[#3525cd]">{initials(client.name)}</span>
+                            </div>
+                            <p className="font-semibold text-[#131b2e] group-hover:text-[#3525cd] transition-colors">
+                              {client.name}
+                            </p>
+                          </Link>
+                        </td>
+                        <td className="px-4 py-4 text-[#464555]">{client.email || '—'}</td>
+                        <td className="px-4 py-4 text-[#464555]">{client.phone || '—'}</td>
+                        <td className="px-4 py-4 text-[#464555] max-w-[240px] truncate">{formatAddress(client) || '—'}</td>
+                        <td className={`px-4 py-4 text-right font-mono font-semibold ${outstanding > 0 ? 'text-[#ba1a1a]' : 'text-[#131b2e]'}`}>
+                          {formatMoney(outstanding)}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-3">
+                            <Link to={`/clients/${client.id}`} className="text-xs font-semibold text-[#3525cd] hover:underline">
+                              View
+                            </Link>
+                            {canWrite && (
+                              <button
+                                onClick={() => openEditModal(client)}
+                                className="text-xs font-semibold text-[#3525cd] hover:underline"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {canManage && (
+                              <button
+                                onClick={() => handleDelete(client)}
+                                disabled={deletingId === client.id}
+                                className="text-xs font-semibold text-[#ba1a1a] hover:underline disabled:opacity-50"
+                              >
+                                {deletingId === client.id ? 'Deleting...' : 'Delete'}
+                              </button>
+                            )}
                           </div>
-                          <p className="font-semibold text-[#131b2e]">{client.name}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-[#464555]">{client.email || '—'}</td>
-                      <td className="px-4 py-4 text-[#464555]">{client.phone || '—'}</td>
-                      <td className="px-4 py-4 text-[#464555] max-w-[240px] truncate">{formatAddress(client) || '—'}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => openEditModal(client)}
-                            className="text-xs font-semibold text-[#3525cd] hover:underline"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(client)}
-                            disabled={deletingId === client.id}
-                            className="text-xs font-semibold text-[#ba1a1a] hover:underline disabled:opacity-50"
-                          >
-                            {deletingId === client.id ? 'Deleting...' : 'Delete'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

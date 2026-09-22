@@ -2,6 +2,8 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../prisma');
 const requireAuth = require('../middleware/auth');
+const requireRole = require('../middleware/roles');
+const { notifyWorkspace } = require('../lib/notify');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -15,27 +17,15 @@ const paymentSchema = z.object({
   notes: z.string().optional()
 });
 
-// Small money helpers shared with the invoice routes. Kept local so the
-// payments module stays self-contained. Discount is applied before tax,
-// matching invoices.js:
+// Small money helpers shared with the invoice routes. Discount is applied
+// before tax, matching invoices.js:
 //   total = (subtotal − discount) + (subtotal − discount) × taxRate%
-function invoiceTotal(invoice, taxRate) {
-  const subtotal = invoice.items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
-  const discount = Math.min(Math.max(Number(invoice.discount || 0), 0), subtotal);
-  const taxable = subtotal - discount;
-  return taxable * (1 + (Number(taxRate) || 0) / 100);
-}
-
-function paidSum(payments) {
-  return (payments || []).reduce((s, p) => s + Number(p.amount), 0);
-}
-
-const MONEY_EPSILON = 0.001;
+const { invoiceTotal, paidSum, MONEY_EPSILON } = require('../lib/money');
 
 // POST /api/payments — record a (possibly partial) payment against an invoice.
 // The invoice status is derived here automatically: once recorded payments
 // cover the total it flips to paid, otherwise it becomes partially_paid.
-router.post('/', async (req, res) => {
+router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const parsed = paymentSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -48,7 +38,7 @@ router.post('/', async (req, res) => {
     include: { items: true, payments: true }
   });
 
-  if (!invoice || invoice.userId !== req.userId) {
+  if (!invoice || invoice.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
   if (invoice.status === 'draft') {
@@ -58,7 +48,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'This invoice is already paid' });
   }
 
-  const settings = await prisma.userSettings.upsert({ where: { userId: req.userId }, update: {}, create: { userId: req.userId } });
+  const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const total = invoiceTotal(invoice, Number(settings.defaultTaxRate || 0));
   const paid = paidSum(invoice.payments);
   const remaining = Math.max(0, total - paid);
@@ -100,6 +90,17 @@ router.post('/', async (req, res) => {
       include: { client: true, items: true, payments: true, auditLogs: { orderBy: { createdAt: 'desc' } } }
     })
   ]);
+
+  await notifyWorkspace({
+    workspaceId: req.workspaceId,
+    excludeUserId: req.userId,
+    type: fullyPaid ? 'invoice_paid' : 'payment',
+    title: fullyPaid ? 'Invoice paid' : 'Payment received',
+    message: fullyPaid
+      ? `${updatedInvoice.invoiceNumber} fully paid (${amount})`
+      : `Payment of ${amount} received on ${updatedInvoice.invoiceNumber}`,
+    invoiceId: updatedInvoice.id
+  });
 
   res.status(201).json({
     payment,
