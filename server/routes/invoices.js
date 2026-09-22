@@ -27,6 +27,7 @@ const invoiceSchema = z.object({
 
 // Atomic per-workspace invoice numbering (WorkspaceSettings.nextInvoiceNumber).
 const generateInvoiceNumber = require('../lib/invoicenumber');
+const { generatePaymentToken } = require('../lib/paymenttoken');
 
 const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partially Paid', paid: 'Paid' };
 
@@ -250,6 +251,23 @@ router.get('/:id', async (req, res) => {
   });
 });
 
+// GET /api/invoices/:id/link — the public "Pay now" link for this invoice.
+// Auth required (workspace members share it); generates a token on demand so
+// every invoice has a working link even if it predates the migration.
+router.get('/:id/link', async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+  if (!invoice || invoice.workspaceId !== req.workspaceId) {
+    return res.status(404).json({ error: 'Invoice not found' });
+  }
+  let token = invoice.paymentToken;
+  if (!token) {
+    token = generatePaymentToken();
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { paymentToken: token } });
+  }
+  const base = process.env.CLIENT_URL || 'http://localhost:5173';
+  res.json({ url: `${base}/pay/${token}` });
+});
+
 // POST /api/invoices — create invoice + line items together (staff+)
 router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const parsed = invoiceSchema.safeParse(req.body);
@@ -289,6 +307,7 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
           clientId,
           invoiceNumber,
           status,
+          paymentToken: generatePaymentToken(),
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
           discount: discount ?? 0,

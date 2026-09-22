@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import { formatMoney, compactMoney } from '../lib/currency';
 import StatusPill from '../components/StatusPill';
 import { computeDisplayStatus, displayStatusLabel } from '../components/status';
 
@@ -37,10 +38,6 @@ function initials(name) {
   return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-function formatMoney(n) {
-  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-}
-
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
 }
@@ -72,44 +69,37 @@ function niceCeil(v) {
   return step * pow;
 }
 
-function compactMoney(n) {
-  const abs = Math.abs(n);
-  if (abs >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  if (abs >= 1e3) return `$${(n / 1e3).toFixed(abs >= 1e4 ? 0 : 1)}k`;
-  return `$${Math.round(n)}`;
-}
-
-function SettlementChart({ data }) {
+function SettlementChart({ data, currency = 'NPR' }) {
   if (!data || data.length === 0) {
     return <div className="h-28 flex items-center justify-center text-xs text-[#9694a8]">Loading chart…</div>;
   }
 
   const W = 640;
-  const H = 176;
-  const padL = 46;
-  const padB = 26;
-  const padT = 8;
+  const H = 184;
+  const padL = 54;
+  const padB = 30;
+  const padT = 10;
   const plotW = W - padL - 10;
   const plotH = H - padB - padT;
 
   const maxVal = niceCeil(Math.max(1, ...data.map((m) => Math.max(m.issuedSum, m.collectedSum))));
   const groupW = plotW / data.length;
-  const barW = Math.min(26, groupW * 0.32);
+  const barW = Math.min(34, groupW * 0.34);
   const yFor = (v) => padT + plotH * (1 - v / maxVal);
   const hFor = (v) => Math.max(0, (v / maxVal) * plotH);
 
   const yTicks = [0, maxVal / 2, maxVal];
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40" role="img" aria-label="Invoiced vs collected per month">
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full aspect-[640/184]" role="img" aria-label="Invoiced vs collected per month">
       {/* Horizontal gridlines + y labels */}
       {yTicks.map((t) => {
         const y = yFor(t);
         return (
           <g key={t}>
             <line x1={padL} x2={W - 8} y1={y} y2={y} stroke="#e2e7ff" strokeWidth={1} />
-            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#9694a8" fontFamily="ui-monospace, monospace">
-              {compactMoney(t)}
+            <text x={padL - 6} y={y + 4} textAnchor="end" fontSize={11} fill="#9694a8" fontFamily="ui-monospace, monospace">
+              {compactMoney(t, currency)}
             </text>
           </g>
         );
@@ -129,7 +119,7 @@ function SettlementChart({ data }) {
               fill={INDIGO}
               opacity={m.issuedSum > 0 ? 1 : 0.15}
             >
-              <title>{`${m.label} ${m.year} — Invoiced: ${m.issuedCount} invoice${m.issuedCount === 1 ? '' : 's'}, ${formatMoney(m.issuedSum)}`}</title>
+              <title>{`${m.label} ${m.year} — Invoiced: ${m.issuedCount} invoice${m.issuedCount === 1 ? '' : 's'}, ${formatMoney(m.issuedSum, currency)}`}</title>
             </rect>
             <rect
               x={cx + 2}
@@ -140,9 +130,9 @@ function SettlementChart({ data }) {
               fill={GREEN}
               opacity={m.collectedSum > 0 ? 1 : 0.15}
             >
-              <title>{`${m.label} ${m.year} — Collected: ${m.collectedCount} payment${m.collectedCount === 1 ? '' : 's'}, ${formatMoney(m.collectedSum)}`}</title>
+              <title>{`${m.label} ${m.year} — Collected: ${m.collectedCount} payment${m.collectedCount === 1 ? '' : 's'}, ${formatMoney(m.collectedSum, currency)}`}</title>
             </rect>
-            <text x={cx} y={H - 8} textAnchor="middle" fontSize={10} fill="#464555">
+            <text x={cx} y={H - 8} textAnchor="middle" fontSize={12} fill="#464555">
               {m.label}
             </text>
           </g>
@@ -197,6 +187,7 @@ export default function Dashboard() {
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState(DEFAULT_STATS);
   const [timeline, setTimeline] = useState([]);
+  const [currency, setCurrency] = useState('NPR');
   const [exporting, setExporting] = useState(false);
   const [runningBatch, setRunningBatch] = useState(false);
   const [menuId, setMenuId] = useState(null);
@@ -220,6 +211,9 @@ export default function Dashboard() {
   useEffect(() => {
     loadStats();
     api.getTimeline().then((d) => setTimeline(d.months || [])).catch(() => {});
+    // The workspace currency drives every money label on this page (KPI cards,
+    // invoice table, chart axis/tooltips) so the symbol is consistent app-wide.
+    api.getSettings().then((s) => setCurrency(s.currency || 'NPR')).catch(() => {});
   }, []);
 
   async function loadStats() {
@@ -447,7 +441,7 @@ export default function Dashboard() {
             <div className="flex flex-wrap gap-4 md:gap-6 mt-6">
               <KPICard
                 label="Total Outstanding"
-                value={formatMoney(stats.sums.totalOutstanding)}
+                value={formatMoney(stats.sums.totalOutstanding, currency)}
                 icon={imgOutstandingIcon}
                 iconBg="#eaedff"
                 footnote={`${stats.counts.all - stats.counts.draft - stats.counts.paid} invoices pending`}
@@ -457,7 +451,7 @@ export default function Dashboard() {
               />
               <KPICard
                 label="Paid This Month"
-                value={formatMoney(stats.sums.paidThisMonth)}
+                value={formatMoney(stats.sums.paidThisMonth, currency)}
                 icon={imgPaidIcon}
                 iconBg="rgba(111,251,190,0.3)"
                 footnote={`${stats.counts.paid} settled invoices`}
@@ -467,7 +461,7 @@ export default function Dashboard() {
               />
               <KPICard
                 label="Overdue"
-                value={formatMoney(stats.sums.overdueTotal)}
+                value={formatMoney(stats.sums.overdueTotal, currency)}
                 valueColor="#ba1a1a"
                 icon={imgOverdueIcon}
                 iconBg="rgba(255,218,214,0.4)"
@@ -478,7 +472,7 @@ export default function Dashboard() {
               />
               <KPICard
                 label="Drafts (Unsent)"
-                value={formatMoney(stats.sums.draftsTotal)}
+                value={formatMoney(stats.sums.draftsTotal, currency)}
                 icon={imgDraftsIcon}
                 iconBg="#e2e7ff"
                 footnote={`${stats.counts.draft} written — not sent to any client`}
@@ -590,7 +584,7 @@ export default function Dashboard() {
                         <td className={`px-4 py-4 ${inv.displayStatus === 'overdue' ? 'text-[#ba1a1a] font-medium' : 'text-[#464555]'}`}>
                           {formatDate(inv.dueDate)}
                         </td>
-                        <td className="px-4 py-4 text-right font-mono font-semibold text-[#131b2e]">{formatMoney(inv.total)}</td>
+                        <td className="px-4 py-4 text-right font-mono font-semibold text-[#131b2e]">{formatMoney(inv.total, currency)}</td>
                         <td className="px-4 py-4 text-center">
                           <StatusPill status={inv.displayStatus} />
                         </td>
@@ -687,8 +681,8 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-              <div className="bg-white rounded-xl shadow-[0px_1px_1px_rgba(0,0,0,0.05)] p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 items-start">
+              <div className="lg:col-span-2 bg-white rounded-xl shadow-[0px_1px_1px_rgba(0,0,0,0.05)] p-6">
                 <div className="flex items-start justify-between mb-6">
                   <div>
                     <h3 className="font-bold text-[#131b2e]">Settlement Timeline</h3>
@@ -713,35 +707,48 @@ export default function Dashboard() {
 
                 {timeline.length > 0 &&
                   timeline.every((m) => m.issuedSum === 0 && m.collectedSum === 0) ? (
-                  <div className="h-40 flex items-center justify-center text-xs text-[#9694a8]">
+                  <div className="w-full aspect-[640/184] flex items-center justify-center text-xs text-[#9694a8]">
                     No invoicing or payments in the last 6 months yet.
                   </div>
                 ) : (
-                  <SettlementChart data={timeline} />
+                  <SettlementChart data={timeline} currency={currency} />
                 )}
               </div>
 
-              <div className="bg-[#e2e7ff] rounded-xl p-6 flex flex-col justify-between">
-                <div>
-                  <p className="text-xs font-bold font-mono tracking-[0.6px] uppercase text-[#3525cd] mb-1">Batch Operations</p>
-                  <h3 className="font-bold text-[#131b2e] mb-2">Reminders</h3>
-                  <p className="text-xs text-[#464555] leading-relaxed">
-                    {stats.counts.overdue > 0
-                      ? `${stats.counts.overdue} overdue invoice${stats.counts.overdue > 1 ? 's' : ''} could use a reminder.`
-                      : 'No overdue invoices right now — nothing to chase.'}
-                  </p>
+              <div className="bg-[#e2e7ff] rounded-xl p-5">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <span className="w-9 h-9 rounded-xl bg-white flex items-center justify-center shrink-0 shadow-[0px_1px_1px_rgba(0,0,0,0.05)]">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 3a6 6 0 0 0-6 6v3.6L4.5 16h15L18 12.6V9a6 6 0 0 0-6-6Z" stroke="#3525cd" strokeWidth="1.8" strokeLinejoin="round" />
+                      <path d="M10 19a2 2 0 0 0 4 0" stroke="#3525cd" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                  <div>
+                    <p className="text-[13px] font-bold text-[#131b2e] leading-tight">Batch Reminders</p>
+                    <p className="text-[11px] text-[#464555] leading-tight">One click — all overdue</p>
+                  </div>
                 </div>
+
+                <p className="text-3xl font-mono font-bold text-[#131b2e]">{stats.counts.overdue}</p>
+                <p className="text-xs text-[#464555] mt-0.5">
+                  {stats.counts.overdue === 1
+                    ? 'overdue invoice waiting'
+                    : stats.counts.overdue > 1
+                      ? 'overdue invoices waiting'
+                      : 'nothing overdue — all caught up'}
+                </p>
+
                 {canWrite ? (
                   <button
                     onClick={handleBatchReminders}
                     disabled={runningBatch || stats.counts.overdue === 0}
-                    className="mt-4 flex items-center justify-center gap-1.5 bg-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] text-sm font-semibold text-[#3525cd] px-4 py-2 rounded-xl hover:bg-[#fafbff] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="mt-4 w-full flex items-center justify-center gap-1.5 bg-[#3525cd] text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-[#2b1fb8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {runningBatch ? 'Sending...' : 'Run Batch Reminders'}
-                    <img src={imgBatchArrow} alt="" className="w-4 h-3.5" />
+                    {runningBatch ? 'Sending…' : 'Send Reminders'}
+                    <img src={imgBatchArrow} alt="" className="w-3.5 h-3" />
                   </button>
                 ) : (
-                  <p className="mt-4 text-xs text-[#464555]">Viewers have read-only access — an admin or staff member can run reminders.</p>
+                  <p className="mt-4 text-[11px] text-[#464555]">Read-only — an admin can run reminders.</p>
                 )}
               </div>
             </div>

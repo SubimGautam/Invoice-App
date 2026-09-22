@@ -32,6 +32,9 @@ async function loadContext(req, res) {
   return {
     invoice,
     businessName: profile?.businessName || 'Billflow',
+    currency: settings.currency,
+    // Public payment link token — suppressed on already-paid invoices.
+    paymentToken: invoice.status === 'paid' ? null : invoice.paymentToken,
     total: invoiceTotal(invoice, Number(settings.defaultTaxRate || 0))
   };
 }
@@ -55,7 +58,7 @@ router.post('/invoice/:id/send', requireRole('owner', 'admin', 'staff'), async (
   const ctx = await loadContext(req, res);
   if (!ctx) return;
 
-  const { invoice, businessName, total } = ctx;
+  const { invoice, businessName, total, currency, paymentToken } = ctx;
   const { subject, html } = invoiceEmail({
     businessName,
     clientName: invoice.client.name,
@@ -63,7 +66,9 @@ router.post('/invoice/:id/send', requireRole('owner', 'admin', 'staff'), async (
     total,
     dueDate: invoice.dueDate,
     invoiceId: invoice.id,
-    note: invoice.notes || ''
+    note: invoice.notes || '',
+    currency,
+    paymentToken
   });
 
   const result = await sendEmail({
@@ -107,7 +112,7 @@ router.post('/invoice/:id/reminder', requireRole('owner', 'admin', 'staff'), asy
   const ctx = await loadContext(req, res);
   if (!ctx) return;
 
-  const { invoice, businessName, total } = ctx;
+  const { invoice, businessName, total, currency, paymentToken } = ctx;
   const overdue = new Date(invoice.dueDate) < new Date() && invoice.status !== 'paid';
   const { subject, html } = reminderEmail({
     businessName,
@@ -116,7 +121,9 @@ router.post('/invoice/:id/reminder', requireRole('owner', 'admin', 'staff'), asy
     total,
     dueDate: invoice.dueDate,
     invoiceId: invoice.id,
-    overdue
+    overdue,
+    currency,
+    paymentToken
   });
 
   const result = await sendEmail({
@@ -184,7 +191,9 @@ router.post('/reminders/batch', requireRole('owner', 'admin', 'staff'), async (r
       total: invoiceTotal(invoice, taxRate),
       dueDate: invoice.dueDate,
       invoiceId: invoice.id,
-      overdue
+      overdue,
+      currency: settings.currency,
+      paymentToken: invoice.paymentToken
     });
     const result = await sendEmail({
       workspaceId: req.workspaceId,

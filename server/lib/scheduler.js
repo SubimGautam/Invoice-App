@@ -1,5 +1,6 @@
 const prisma = require('../prisma');
 const generateInvoiceNumber = require('./invoicenumber');
+const { generatePaymentToken } = require('./paymenttoken');
 const { notifyWorkspace } = require('./notify');
 
 // In-process scheduler. Kept deliberately simple: a timer that periodically
@@ -70,6 +71,7 @@ async function generateDueRecurring({ workspaceId = null } = {}) {
                 clientId: schedule.clientId,
                 invoiceNumber,
                 status: 'pending',
+                paymentToken: generatePaymentToken(),
                 issueDate,
                 dueDate,
                 discount: schedule.discount,

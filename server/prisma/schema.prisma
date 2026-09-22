@@ -52,6 +52,7 @@ model Workspace {
   recurringInvoices RecurringInvoice[]
   notifications Notification[]
   emailLogs    EmailLog[]
+  paymentAttempts PaymentAttempt[]
 }
 
 model Membership {
@@ -166,6 +167,10 @@ model Invoice {
   paidAt        DateTime?
   // When the invoice was first emailed to the client.
   sentAt        DateTime?
+  // Unguessable token powering the public "Pay now" payment link so clients
+  // can pay without an account. Backfilled for existing rows on migration.
+  paymentToken  String?       @unique
+  paymentAttempts PaymentAttempt[]
   // Set when this invoice was materialized by a recurring schedule.
   recurringId   String?
   recurring     RecurringInvoice? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
@@ -335,4 +340,34 @@ model EmailLog {
   sentAt      DateTime  @default(now())
 
   @@index([workspaceId, invoiceId])
+}
+
+// One checkout started against an invoice through a payment gateway (eSewa,
+// simulated, future: Khalti, ConnectIPS). PaymentAttempt is the reconciliation
+// ledger: a booking is created up front, and the gateway's status is resolved
+// before any payment is recorded — so a payment can never be double-recorded,
+// even when the gateway callback and the redirect-back both fire.
+model PaymentAttempt {
+  id              String   @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  // Amount in NPR requested (authoritative — the gateway only confirms status).
+  amount          Float
+  currency        String   @default("NPR")
+  gateway         String   @default("esewa") // esewa | simulated | khalti…
+  transactionUuid String // merchant-side unique id; re-used as the payment reference
+  bookingId       String?  @unique // eSewa booking_id
+  correlationId   String?
+  // created | paid | partial | pending | failed | canceled
+  status          String   @default("created")
+  referenceCode   String? // gateway reference (e.g. 000DTSM)
+  gatewayTxnId    String?
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([invoiceId])
+  @@index([workspaceId, createdAt])
 }

@@ -137,5 +137,16 @@ export const api = {
   deleteRecurring: (id) =>
     request(`/api/recurring/${id}`, { method: 'DELETE' }),
   generateDueRecurring: () =>
-    request('/api/recurring/generate-due', { method: 'POST' })
+    request('/api/recurring/generate-due', { method: 'POST' }),
+
+  // --- Public payment links (no auth needed to fetch or pay) ---
+  getPaymentLink: (token) => request(`/api/pay/${token}`),
+  payInvoice: (token, payload) =>
+    request(`/api/pay/${token}`, { method: 'POST', body: JSON.stringify(payload) }),
+  initiatePayLink: (token, payload) =>
+    request(`/api/pay/${token}/initiate`, { method: 'POST', body: JSON.stringify(payload) }),
+  resolvePayLink: (token, attemptId) =>
+    request(`/api/pay/${token}/resolve`, { method: 'POST', body: JSON.stringify({ attemptId }) }),
+  // Auth'd helper: the workspace share link for an invoice (copies to clipboard).
+  getInvoicePayLink: (id) => request(`/api/invoices/${id}/link`)
 };

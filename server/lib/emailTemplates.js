@@ -33,6 +33,12 @@ function amount(n, symbol = 'Rs. ') {
   return `${symbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 }
 
+// Keep email amounts on the workspace's currency (same map the client uses).
+const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
+function symbolFor(currency) {
+  return CURRENCY_SYMBOLS[currency] || (currency ? `${currency} ` : 'Rs. ');
+}
+
 function dueLabel(dueDate) {
   return dueDate ? new Date(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
 }
@@ -53,10 +59,11 @@ function summaryTable(invoiceNumber, due, total) {
     </table>`;
 }
 
-// An invoice email: polite intro + key numbers + a button to view the invoice.
-function invoiceEmail({ businessName, clientName, invoiceNumber, total, dueDate, invoiceId, note = '' }) {
+// An invoice email: polite intro + key numbers + view/pay buttons.
+function invoiceEmail({ businessName, clientName, invoiceNumber, total, dueDate, invoiceId, note = '', currency = 'NPR', paymentToken = null }) {
   const subject = `Invoice ${invoiceNumber} from ${businessName}`;
   const link = invoiceUrl(invoiceId);
+  const payHref = paymentToken ? `${CLIENT_URL}/pay/${paymentToken}` : null;
   const html = shell({
     businessName,
     preheader: `Your invoice ${invoiceNumber} is ready.`,
@@ -65,33 +72,65 @@ function invoiceEmail({ businessName, clientName, invoiceNumber, total, dueDate,
       <p style="margin:0 0 20px;color:#464555;font-size:14px;line-height:1.5;">
         Please find your invoice below. You can view and pay it at any time.
       </p>
-      ${summaryTable(invoiceNumber, dueLabel(dueDate), amount(total))}
+      ${summaryTable(invoiceNumber, dueLabel(dueDate), amount(total, symbolFor(currency)))}
       ${note ? `<p style="margin:16px 0 0;color:#464555;font-size:13px;line-height:1.5;">${note}</p>` : ''}
-      <a href="${link}" style="display:inline-block;margin-top:24px;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">View Invoice</a>
+      ${actionButtons(link, payHref)}
     `
   });
   return { subject, html };
 }
 
 // A reminder: the invoice is still open / overdue.
-function reminderEmail({ businessName, clientName, invoiceNumber, total, dueDate, invoiceId, overdue = false }) {
+function reminderEmail({ businessName, clientName, invoiceNumber, total, dueDate, invoiceId, overdue = false, currency = 'NPR', paymentToken = null }) {
   const subject = overdue
     ? `Overdue: Invoice ${invoiceNumber} from ${businessName}`
     : `Reminder: Invoice ${invoiceNumber} from ${businessName}`;
   const line = overdue
     ? 'We noticed this invoice is now overdue. If the payment has already been made, please disregard this message.'
     : 'This is a friendly reminder that the invoice below is still open.';
+  const payHref = paymentToken ? `${CLIENT_URL}/pay/${paymentToken}` : null;
   const html = shell({
     businessName,
     preheader: subject,
     body: `
       <p style="margin:0 0 8px;color:#131b2e;font-size:15px;font-weight:600;">Hi ${clientName},</p>
       <p style="margin:0 0 20px;color:#464555;font-size:14px;line-height:1.5;">${line}</p>
-      ${summaryTable(invoiceNumber, dueLabel(dueDate), amount(total))}
+      ${summaryTable(invoiceNumber, dueLabel(dueDate), amount(total, symbolFor(currency)))}
+      ${actionButtons(invoiceUrl(invoiceId), payHref)}
+    `
+  });
+  return { subject, html };
+}
+
+// Primary "Pay now" (public payment link, no account needed) + secondary
+// "View Invoice". Falls back to just the view button when no token exists.
+function actionButtons(viewHref, payHref) {
+  const view = `<a href="${viewHref}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">View Invoice</a>`;
+  if (!payHref) return view;
+  return `
+    <a href="${payHref}" style="display:inline-block;background:#006c49;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 28px;border-radius:12px;">Pay Now</a>
+    <a href="${viewHref}" style="display:inline-block;margin-left:12px;background:#ffffff;color:#4f46e5;border:1px solid #c7c4d8;text-decoration:none;font-weight:600;font-size:14px;padding:12px 20px;border-radius:12px;">View Invoice</a>`;
+}
+
+// Receipt sent to the client after a payment lands through the payment link.
+function paymentReceiptEmail({ businessName, clientName, invoiceNumber, amountPaid, remaining, currency = 'NPR', invoiceId }) {
+  const sym = symbolFor(currency);
+  const subject = `Payment received for ${invoiceNumber}`;
+  const html = shell({
+    businessName,
+    preheader: `${amount(amountPaid, sym)} received on ${invoiceNumber}.`,
+    body: `
+      <p style="margin:0 0 8px;color:#131b2e;font-size:15px;font-weight:600;">Hi ${clientName},</p>
+      <p style="margin:0 0 20px;color:#464555;font-size:14px;line-height:1.5;">
+        Thanks — we've received your payment of <strong>${amount(amountPaid, sym)}</strong> for invoice
+        <strong>${invoiceNumber}</strong>.
+        ${remaining > 0 ? `There is still <strong>${amount(remaining, sym)}</strong> left to pay.` : 'This invoice is now fully settled.'}
+      </p>
+      ${summaryTable(invoiceNumber, remaining > 0 ? 'Remaining' : 'Paid in full', amount(amountPaid, sym))}
       <a href="${invoiceUrl(invoiceId)}" style="display:inline-block;margin-top:24px;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">View Invoice</a>
     `
   });
   return { subject, html };
 }
 
-module.exports = { invoiceEmail, reminderEmail, invoiceUrl, amount };
+module.exports = { invoiceEmail, reminderEmail, paymentReceiptEmail, invoiceUrl, amount };

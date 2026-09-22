@@ -21,6 +21,7 @@ app.use('/api/workspaces', require('./routes/workspaces'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/emails', require('./routes/emails'));
 app.use('/api/recurring', require('./routes/recurring'));
+app.use('/api/pay', require('./routes/pay'));
 // Health check route — confirms the server is alive
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });

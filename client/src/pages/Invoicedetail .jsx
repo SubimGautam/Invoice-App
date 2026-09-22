@@ -195,6 +195,7 @@ export default function InvoiceDetail() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
 
@@ -297,6 +298,20 @@ export default function InvoiceDetail() {
       setActionError(err.message);
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  async function handleCopyPayLink() {
+    setActionError('');
+    setLinkCopied(false);
+    try {
+      const { url } = await api.getInvoicePayLink(id);
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      setSuccessMessage('Payment link copied — send it to your client to collect payment.');
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (err) {
+      setActionError(err.message);
     }
   }
 
@@ -622,6 +637,15 @@ export default function InvoiceDetail() {
             >
               ↓ PDF
             </button>
+            {invoice.status !== 'draft' && invoice.status !== 'paid' && (
+              <button
+                onClick={handleCopyPayLink}
+                className="flex items-center gap-1.5 bg-[#f2f3ff] hover:bg-[#e2e7ff] text-sm text-[#464555] px-4 py-2 rounded-xl transition-colors"
+                title="Copy the public payment link to share with the client"
+              >
+                {linkCopied ? '✓ Link copied' : '🔗 Copy Pay Link'}
+              </button>
+            )}
             {canWrite && (
               <Link
                 to={`/invoices/${invoice.id}/edit`}
