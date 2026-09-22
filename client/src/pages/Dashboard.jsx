@@ -24,7 +24,6 @@ const imgDotsIcon = "https://www.figma.com/api/mcp/asset/b2d929a9-4804-4ad3-a21d
 const imgEditIcon = "https://www.figma.com/api/mcp/asset/f90f6c04-d63a-4ed6-8974-d2ee8d7665b6.svg";
 const imgChevronLeft = "https://www.figma.com/api/mcp/asset/98207ea4-983b-4392-b8d2-a1360da77d63.svg";
 const imgChevronRightSm = "https://www.figma.com/api/mcp/asset/f9953c37-3a07-4c53-afcd-9557c56ab77a.svg";
-const imgSettlementChart = "https://www.figma.com/api/mcp/asset/15ade0b3-cf68-4cd6-83e7-a881dd6bd882.svg";
 const imgBatchArrow = "https://www.figma.com/api/mcp/asset/506ce05d-8e1e-49f0-8bbc-1f0d608ed5bf.svg";
 
 // Fallback when the server didn't attach a total (shouldn't happen — the list
@@ -55,6 +54,101 @@ function Avatar({ name, status }) {
         {initials(name)}
       </span>
     </div>
+  );
+}
+
+// --- Settlement Timeline chart -------------------------------------------------
+// Pure-SVG grouped bar chart: "Invoiced" (value billed that month) vs
+// "Collected" (payments received that month). No chart library — keeps the
+// bundle small and the visuals matched to the app's design.
+const INDIGO = '#4f46e5';
+const GREEN = '#0e7a41';
+
+function niceCeil(v) {
+  if (v <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / pow;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+function compactMoney(n) {
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `$${(n / 1e3).toFixed(abs >= 1e4 ? 0 : 1)}k`;
+  return `$${Math.round(n)}`;
+}
+
+function SettlementChart({ data }) {
+  if (!data || data.length === 0) {
+    return <div className="h-28 flex items-center justify-center text-xs text-[#9694a8]">Loading chart…</div>;
+  }
+
+  const W = 640;
+  const H = 176;
+  const padL = 46;
+  const padB = 26;
+  const padT = 8;
+  const plotW = W - padL - 10;
+  const plotH = H - padB - padT;
+
+  const maxVal = niceCeil(Math.max(1, ...data.map((m) => Math.max(m.issuedSum, m.collectedSum))));
+  const groupW = plotW / data.length;
+  const barW = Math.min(26, groupW * 0.32);
+  const yFor = (v) => padT + plotH * (1 - v / maxVal);
+  const hFor = (v) => Math.max(0, (v / maxVal) * plotH);
+
+  const yTicks = [0, maxVal / 2, maxVal];
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40" role="img" aria-label="Invoiced vs collected per month">
+      {/* Horizontal gridlines + y labels */}
+      {yTicks.map((t) => {
+        const y = yFor(t);
+        return (
+          <g key={t}>
+            <line x1={padL} x2={W - 8} y1={y} y2={y} stroke="#e2e7ff" strokeWidth={1} />
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#9694a8" fontFamily="ui-monospace, monospace">
+              {compactMoney(t)}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Bars: invoiced (indigo) left, collected (green) right, per month */}
+      {data.map((m, i) => {
+        const cx = padL + groupW * i + groupW / 2;
+        return (
+          <g key={m.key}>
+            <rect
+              x={cx - barW - 2}
+              y={yFor(m.issuedSum)}
+              width={barW}
+              height={hFor(m.issuedSum)}
+              rx={3}
+              fill={INDIGO}
+              opacity={m.issuedSum > 0 ? 1 : 0.15}
+            >
+              <title>{`${m.label} ${m.year} — Invoiced: ${m.issuedCount} invoice${m.issuedCount === 1 ? '' : 's'}, ${formatMoney(m.issuedSum)}`}</title>
+            </rect>
+            <rect
+              x={cx + 2}
+              y={yFor(m.collectedSum)}
+              width={barW}
+              height={hFor(m.collectedSum)}
+              rx={3}
+              fill={GREEN}
+              opacity={m.collectedSum > 0 ? 1 : 0.15}
+            >
+              <title>{`${m.label} ${m.year} — Collected: ${m.collectedCount} payment${m.collectedCount === 1 ? '' : 's'}, ${formatMoney(m.collectedSum)}`}</title>
+            </rect>
+            <text x={cx} y={H - 8} textAnchor="middle" fontSize={10} fill="#464555">
+              {m.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -102,6 +196,7 @@ export default function Dashboard() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState(DEFAULT_STATS);
+  const [timeline, setTimeline] = useState([]);
   const [exporting, setExporting] = useState(false);
   const [runningBatch, setRunningBatch] = useState(false);
   const [menuId, setMenuId] = useState(null);
@@ -124,6 +219,7 @@ export default function Dashboard() {
   // Real counts + dollar totals across the WHOLE account — independent of pagination/filter.
   useEffect(() => {
     loadStats();
+    api.getTimeline().then((d) => setTimeline(d.months || [])).catch(() => {});
   }, []);
 
   async function loadStats() {
@@ -150,7 +246,7 @@ export default function Dashboard() {
           : activeFilter === 'partiallyPaid'
             ? 'partially_paid'
             : activeFilter;
-      const data = await api.getInvoices(page, 20, statusParam);
+      const data = await api.getInvoices(page, 5, statusParam);
       setInvoices(data.invoices);
       setPagination(data.pagination);
     } catch (err) {
@@ -592,26 +688,37 @@ export default function Dashboard() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-              <div className="lg:col-span-2 bg-white rounded-xl shadow-[0px_1px_1px_rgba(0,0,0,0.05)] p-6">
+              <div className="bg-white rounded-xl shadow-[0px_1px_1px_rgba(0,0,0,0.05)] p-6">
                 <div className="flex items-start justify-between mb-6">
                   <div>
                     <h3 className="font-bold text-[#131b2e]">Settlement Timeline</h3>
-                    <p className="text-xs text-[#464555]">Average turnaround across your invoices</p>
+                    <p className="text-xs text-[#464555]">Invoice value billed vs. payments collected — last 6 months</p>
                   </div>
                   <span className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[#006c49]">
                     <span className="w-2 h-2 rounded-full bg-[#006c49]" />
                     {stats.counts.all > 0 ? Math.round((stats.counts.paid / stats.counts.all) * 100) : 0}% paid
                   </span>
                 </div>
-                <div className="h-28">
-                  <img src={imgSettlementChart} alt="Settlement timeline trend" className="w-full h-full object-contain" />
+
+                <div className="flex items-center gap-4 mb-4">
+                  <span className="flex items-center gap-1.5 text-xs text-[#464555]">
+                    <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: INDIGO }} />
+                    Invoiced
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs text-[#464555]">
+                    <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: GREEN }} />
+                    Collected
+                  </span>
                 </div>
-                <div className="flex justify-between text-xs font-mono text-[#464555] mt-2">
-                  <span>Week 1</span>
-                  <span>Week 2</span>
-                  <span>Week 3</span>
-                  <span>Week 4 (Current)</span>
-                </div>
+
+                {timeline.length > 0 &&
+                  timeline.every((m) => m.issuedSum === 0 && m.collectedSum === 0) ? (
+                  <div className="h-40 flex items-center justify-center text-xs text-[#9694a8]">
+                    No invoicing or payments in the last 6 months yet.
+                  </div>
+                ) : (
+                  <SettlementChart data={timeline} />
+                )}
               </div>
 
               <div className="bg-[#e2e7ff] rounded-xl p-6 flex flex-col justify-between">

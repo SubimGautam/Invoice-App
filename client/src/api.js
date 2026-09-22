@@ -44,6 +44,7 @@ export const api = {
 
   // --- Invoices ---
   getInvoiceStats: () => request('/api/invoices/stats'),
+  getTimeline: () => request('/api/invoices/timeline'),
   getInvoices: (page = 1, limit = 20, status) => {
     const params = new URLSearchParams({ page, limit });
     if (status) params.set('status', status);

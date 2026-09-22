@@ -161,6 +161,69 @@ router.get('/stats', async (req, res) => {
   res.json({ counts, sums });
 });
 
+// GET /api/invoices/timeline — monthly "invoiced vs collected" series for the
+// last N months (default 6). Invoiced = non-draft invoices created that month;
+// collected = payments received that month. Powers the Settlement Timeline
+// chart on the dashboard. Registered before /:id so "timeline" isn't parsed as
+// an invoice id.
+router.get('/timeline', async (req, res) => {
+  const months = Math.min(Math.max(parseInt(req.query.months) || 6, 1), 24);
+  const [settings, invoices] = await Promise.all([
+    prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } }),
+    prisma.invoice.findMany({
+      where: { workspaceId: req.workspaceId },
+      select: {
+        status: true,
+        createdAt: true,
+        discount: true,
+        items: { select: { quantity: true, unitPrice: true } },
+        payments: { select: { amount: true, paymentDate: true } }
+      }
+    })
+  ]);
+  const taxRate = Number(settings.defaultTaxRate || 0);
+
+  // Buckets oldest -> newest (last `months` months, current month included).
+  const now = new Date();
+  const buckets = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    buckets.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleString('en-US', { month: 'short' }),
+      year: d.getFullYear(),
+      issuedCount: 0,
+      issuedSum: 0,
+      collectedCount: 0,
+      collectedSum: 0
+    });
+  }
+  const byKey = new Map(buckets.map((b) => [b.key, b]));
+  const monthKey = (dateStr) => {
+    const d = new Date(dateStr);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  for (const inv of invoices) {
+    if (inv.status !== 'draft') {
+      const bucket = byKey.get(monthKey(inv.createdAt));
+      if (bucket) {
+        bucket.issuedCount++;
+        bucket.issuedSum += invoiceTotal(inv, taxRate);
+      }
+    }
+    for (const p of inv.payments) {
+      const bucket = byKey.get(monthKey(p.paymentDate));
+      if (bucket) {
+        bucket.collectedCount++;
+        bucket.collectedSum += Number(p.amount);
+      }
+    }
+  }
+
+  res.json({ months: buckets });
+});
+
 // GET /api/invoices/:id — single invoice with client, items, payments, and its real audit trail
 router.get('/:id', async (req, res) => {
   const invoice = await prisma.invoice.findUnique({
