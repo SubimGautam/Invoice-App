@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -30,7 +30,8 @@ function copyText(text, onDone) {
 }
 
 export default function Members() {
-  const { canManage, role, user } = useAuth();
+  const { canManage, role, user, workspace, applySession } = useAuth();
+  const navigate = useNavigate();
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -80,6 +81,26 @@ export default function Members() {
     try {
       await api.removeMember(member.id);
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // Self-service exit for invited members. After leaving the ACTIVE workspace
+  // we switch into the next remaining one so the account always has somewhere
+  // to land (the server blocks leaving your only workspace).
+  async function handleLeave() {
+    if (!workspace) return;
+    if (!window.confirm(`Leave "${workspace.name}"? You'll lose access to its invoices, clients, and data.`)) return;
+    setError('');
+    try {
+      const result = await api.leaveWorkspace(workspace.id);
+      const first = result.remainingWorkspaces[0];
+      if (first) {
+        const session = await api.activateWorkspace(first.id);
+        applySession(session);
+      }
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err.message);
     }
@@ -204,7 +225,14 @@ export default function Members() {
                           {new Date(member.joinedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </td>
                         <td className="px-6 py-4">
-                          {canManage && !isOwner ? (
+                          {isCurrentUser && !isOwner ? (
+                            <button
+                              onClick={handleLeave}
+                              className="text-xs font-semibold text-[#ba1a1a] hover:underline"
+                            >
+                              Leave workspace
+                            </button>
+                          ) : canManage && !isOwner ? (
                             <button
                               onClick={() => handleRemove(member)}
                               className="text-xs font-semibold text-[#ba1a1a] hover:underline"
@@ -232,6 +260,11 @@ export default function Members() {
             <li><span className="font-semibold">Staff</span> — create and edit invoices, clients, products, schedules; can't delete clients/products/invoices or manage members.</li>
             <li><span className="font-semibold">Viewer</span> — read-only access to everything.</li>
           </ul>
+          {role !== 'owner' && (
+            <p className="mt-3 text-xs text-[#ba1a1a]">
+              You're a guest in this workspace — you can leave anytime using the button on your row above or the workspace menu in the top bar.
+            </p>
+          )}
           {canManage && (
             <p className="mt-3 text-xs text-[#464555]">
               <Link to="/join" className="text-[#3525cd] font-semibold hover:underline">Have a code from another workspace?</Link> Sign in to join it from there.

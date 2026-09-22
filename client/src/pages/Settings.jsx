@@ -168,7 +168,7 @@ export default function Settings() {
 
   return (
     <DashboardLayout>
-      <div className="py-4 max-w-3xl">
+      <div className="py-4">
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
           <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
@@ -195,10 +195,10 @@ export default function Settings() {
             Loading settings...
           </div>
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 items-start">
             {/* Workspace */}
             {canManage && (
-              <form onSubmit={handleRenameWorkspace} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-6">
+              <form onSubmit={handleRenameWorkspace} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-5">
                 <h2 className="font-bold text-[#131b2e] mb-1">Workspace</h2>
                 <p className="text-xs text-[#464555] mb-5">
                   The name shown across the app, in the sidebar, and on invites. Renaming doesn't affect your data.
@@ -231,7 +231,7 @@ export default function Settings() {
             )}
 
             {/* Business Profile */}
-            <form onSubmit={handleSaveProfile} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-6">
+            <form onSubmit={handleSaveProfile} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-5">
               <h2 className="font-bold text-[#131b2e] mb-1">Business Profile</h2>
               <p className="text-xs text-[#464555] mb-5">
                 Shown on every invoice you send, including the PDF export.
@@ -242,7 +242,7 @@ export default function Settings() {
               )}
 
               <fieldset disabled={readOnly} className="border-0 p-0 m-0 min-w-0">
-              <div className="grid sm:grid-cols-2 gap-4 mb-5">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
                 <Field
                   label="Business Name"
                   required
@@ -268,17 +268,17 @@ export default function Settings() {
               </div>
 
               <p className="text-xs font-semibold tracking-wide uppercase text-[#464555] mb-3">Address</p>
-              <div className="flex flex-col gap-4 mb-5">
+              <div className="flex flex-col gap-4 mb-4">
                 <Field
                   label="Street Address"
                   value={profile.street || ''}
                   onChange={(e) => updateProfileField('street', e.target.value)}
                 />
-                <div className="grid sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   <Field label="City" value={profile.city || ''} onChange={(e) => updateProfileField('city', e.target.value)} />
                   <Field label="State" value={profile.state || ''} onChange={(e) => updateProfileField('state', e.target.value)} />
                 </div>
-                <div className="grid sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   <Field label="Zip Code" value={profile.zipCode || ''} onChange={(e) => updateProfileField('zipCode', e.target.value)} />
                   <Field label="Country" value={profile.country || ''} onChange={(e) => updateProfileField('country', e.target.value)} />
                 </div>
@@ -287,7 +287,7 @@ export default function Settings() {
               <p className="text-xs font-semibold tracking-wide uppercase text-[#464555] mb-3">
                 Bank / Payout Details <span className="text-[#9694a8]">(shown on invoices when filled in)</span>
               </p>
-              <div className="grid sm:grid-cols-3 gap-4 mb-5">
+              <div className="grid grid-cols-1 2xl:grid-cols-3 gap-4 mb-4">
                 <Field label="Bank Name" value={profile.bankName || ''} onChange={(e) => updateProfileField('bankName', e.target.value)} />
                 <Field label="Routing Number" value={profile.routingNumber || ''} onChange={(e) => updateProfileField('routingNumber', e.target.value)} />
                 <Field label="Account Number" value={profile.accountNumber || ''} onChange={(e) => updateProfileField('accountNumber', e.target.value)} />
@@ -320,7 +320,7 @@ export default function Settings() {
             </form>
 
             {/* Invoicing & Notifications */}
-            <form onSubmit={handleSaveSettings} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-6">
+            <form onSubmit={handleSaveSettings} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-5">
               <h2 className="font-bold text-[#131b2e] mb-1">Invoicing Defaults</h2>
               <p className="text-xs text-[#464555] mb-5">
                 Applied to new invoices and used throughout Reports.
@@ -331,7 +331,7 @@ export default function Settings() {
               )}
 
               <fieldset disabled={readOnly} className="border-0 p-0 m-0 min-w-0">
-              <div className="grid sm:grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Currency</label>
                   <select

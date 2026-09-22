@@ -1,34 +1,20 @@
 import { NavLink, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const imgLogo = "https://www.figma.com/api/mcp/asset/83e7cda2-1fde-4e09-aab6-d1905568cc90.png";
+// Sidebar icons — uploaded into src/assets.
+import imgDashboardIcon from '../assets/Dashboard.png';
+import imgProductsIcon from '../assets/Product.png';
+import imgClientsIcon from '../assets/Client.png';
+import imgRecurringIcon from '../assets/Recurring.png';
+import imgReportsIcon from '../assets/Reports.png';
+import imgSettingsIcon from '../assets/Setting.png';
+import imgMembersIcon from '../assets/Team and member.png';
+
 const imgPlusIcon = "https://www.figma.com/api/mcp/asset/aef0833e-f733-4e6f-87af-dec6a1e11336.svg";
-const imgInvoicesIcon = "https://www.figma.com/api/mcp/asset/1028e1b6-0ae9-4d68-ae52-35119551ee2a.svg";
-const imgClientsIcon = "https://www.figma.com/api/mcp/asset/932315ee-9fa5-4f1f-b82e-7aff5ecdfb3b.svg";
-const imgReportsIcon = "https://www.figma.com/api/mcp/asset/8d447373-b0fa-4497-a88e-0957fe0a951c.svg";
-const imgSettingsIcon = "https://www.figma.com/api/mcp/asset/d9d332a3-93e5-4d34-ae92-ee4e0500e08a.svg";
 const imgChevron = "https://www.figma.com/api/mcp/asset/176d757b-ed9a-42af-afd7-576f39dbcd6d.svg";
-// A tiny inline "box" icon for Products (no Figma asset exists for it yet).
-const imgProductsIcon =
-  "data:image/svg+xml;charset=UTF-8," +
-  encodeURIComponent(
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23818095' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 8l-9-5-9 5v8l9 5 9-5V8z'/><path d='M3 8l9 5 9-5'/><path d='M12 13v8'/></svg>"
-  );
-// A tiny inline "repeat" icon for Recurring (no Figma asset exists for it yet).
-const imgRecurringIcon =
-  "data:image/svg+xml;charset=UTF-8," +
-  encodeURIComponent(
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23818095' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M17 2l4 4-4 4'/><path d='M3 11v-1a4 4 0 0 1 4-4h14'/><path d='M7 22l-4-4 4-4'/><path d='M21 13v1a4 4 0 0 1-4 4H3'/></svg>"
-  );
-// A tiny inline "users" icon for Members (no Figma asset exists for it yet).
-const imgMembersIcon =
-  "data:image/svg+xml;charset=UTF-8," +
-  encodeURIComponent(
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23818095' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M23 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/></svg>"
-  );
 
 const navItems = [
-  { to: '/dashboard', label: 'Invoices', icon: imgInvoicesIcon },
+  { to: '/dashboard', label: 'Dashboard', icon: imgDashboardIcon },
   { to: '/products', label: 'Products', icon: imgProductsIcon },
   { to: '/clients', label: 'Clients', icon: imgClientsIcon },
   { to: '/recurring', label: 'Recurring', icon: imgRecurringIcon },
@@ -89,7 +75,7 @@ export default function Sidebar() {
                 }`
               }
             >
-              <img src={item.icon} alt="" className="w-4 h-4 opacity-80" />
+              <img src={item.icon} alt="" className="w-5 h-5 opacity-80" />
               {item.label}
             </NavLink>
           ))}
@@ -111,7 +97,7 @@ export default function Sidebar() {
                     }`
                   }
                 >
-                  <img src={item.icon} alt="" className="w-4 h-4 opacity-80" />
+                  <img src={item.icon} alt="" className="w-5 h-5 opacity-80" />
                   {item.label}
                 </NavLink>
               ))}

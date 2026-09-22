@@ -32,7 +32,9 @@ router.get('/unread-count', async (req, res) => {
 // PATCH /api/notifications/:id/read — mark one as read
 router.patch('/:id/read', async (req, res) => {
   const notification = await prisma.notification.findUnique({ where: { id: req.params.id } });
-  if (!notification || notification.userId !== req.userId) {
+  // Scoped to both the owner AND the active workspace — a user switching between
+  // workspaces must only act on the feed they're currently viewing.
+  if (!notification || notification.userId !== req.userId || notification.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Notification not found' });
   }
   const updated = await prisma.notification.update({

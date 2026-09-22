@@ -51,7 +51,9 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid status filter' });
     }
     if (status === 'overdue') {
-      where.status = 'pending';
+      // Overdue = any OPEN invoice past its due date (pending OR partially
+      // paid) — matches the KPI count on the dashboard.
+      where.status = { in: ['pending', 'partially_paid'] };
       where.dueDate = { lt: new Date() };
     } else {
       where.status = status;
@@ -277,7 +279,10 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   }
 
   const existing = await prisma.invoice.findUnique({ where: { id: req.params.id } });
-  if (!existing || existing.userId !== req.userId) {
+  // Scope by WORKSPACE, not creator: in a team workspace any staff+ member
+  // edits any draft/sent invoice, and a multi-workspace user must never be able
+  // to touch invoices outside the active workspace.
+  if (!existing || existing.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Invoice not found' });
   }
 

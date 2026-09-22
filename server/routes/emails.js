@@ -174,6 +174,7 @@ router.post('/reminders/batch', requireRole('owner', 'admin', 'staff'), async (r
 
   const businessName = profile?.businessName || 'Billflow';
   let sent = 0;
+  let anySimulated = false;
   for (const invoice of invoices) {
     const overdue = new Date(invoice.dueDate) < new Date();
     const { subject, html } = reminderEmail({
@@ -185,7 +186,7 @@ router.post('/reminders/batch', requireRole('owner', 'admin', 'staff'), async (r
       invoiceId: invoice.id,
       overdue
     });
-    await sendEmail({
+    const result = await sendEmail({
       workspaceId: req.workspaceId,
       userId: req.userId,
       invoiceId: invoice.id,
@@ -194,6 +195,7 @@ router.post('/reminders/batch', requireRole('owner', 'admin', 'staff'), async (r
       subject,
       html
     });
+    if (result.simulated) anySimulated = true;
     sent += 1;
   }
 
@@ -207,7 +209,7 @@ router.post('/reminders/batch', requireRole('owner', 'admin', 'staff'), async (r
     });
   }
 
-  res.json({ sent, skipped: invoices.length - sent });
+  res.json({ sent, skipped: invoices.length - sent, simulated: anySimulated });
 });
 
 module.exports = router;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -105,6 +105,21 @@ export default function Dashboard() {
   const [exporting, setExporting] = useState(false);
   const [runningBatch, setRunningBatch] = useState(false);
   const [menuId, setMenuId] = useState(null);
+  const location = useLocation();
+
+  // Cross-page success notices (e.g. "Invoice saved as a draft") arrive via
+  // router state when navigating back to the dashboard. replaceState clears it
+  // so a refresh or back-button press doesn't re-show the banner. The timer
+  // defers the state update so it stays outside the effect's synchronous body.
+  useEffect(() => {
+    if (location.state?.notice) {
+      const t = setTimeout(() => {
+        setNotice(location.state.notice);
+        window.history.replaceState({}, '');
+      }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [location.state]);
 
   // Real counts + dollar totals across the WHOLE account — independent of pagination/filter.
   useEffect(() => {
@@ -293,9 +308,9 @@ export default function Dashboard() {
             <div className="flex items-center gap-1">
               <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
               <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
-              <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Ledger</span>
+              <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Dashboard</span>
             </div>
-            <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Invoices</h1>
+            <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Dashboard</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -339,7 +354,7 @@ export default function Dashboard() {
                 value={formatMoney(stats.sums.totalOutstanding)}
                 icon={imgOutstandingIcon}
                 iconBg="#eaedff"
-                footnote={`${stats.counts.pending + stats.counts.partiallyPaid + stats.counts.overdue} invoices pending`}
+                footnote={`${stats.counts.all - stats.counts.draft - stats.counts.paid} invoices pending`}
                 badge={<span className="flex items-center gap-1"><img src={imgUpArrowIcon} alt="" className="w-2.5 h-1.5" />Live</span>}
                 badgeColor="#006c49"
                 badgeBg="#f2f3ff"
@@ -366,12 +381,12 @@ export default function Dashboard() {
                 badgeBg="rgba(255,218,214,0.3)"
               />
               <KPICard
-                label="Drafts Prepared"
+                label="Drafts (Unsent)"
                 value={formatMoney(stats.sums.draftsTotal)}
                 icon={imgDraftsIcon}
                 iconBg="#e2e7ff"
-                footnote={`${stats.counts.draft} unreleased invoices`}
-                badge="In review"
+                footnote={`${stats.counts.draft} written — not sent to any client`}
+                badge="Not released"
                 badgeColor="#464555"
                 badgeBg="#f2f3ff"
               />

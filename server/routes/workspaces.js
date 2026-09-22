@@ -72,6 +72,59 @@ router.post('/activate', async (req, res) => {
   });
 });
 
+// POST /api/workspaces/leave — remove YOURSELF from a workspace. Two hard
+// guards keep the account usable afterwards:
+//   1. An owner can only leave when another owner remains (a workspace must
+//      always have exactly one acting owner after they go).
+//   2. Nobody can leave their LAST workspace — with zero memberships every
+//      workspace-scoped call (and login) would 401, stranding the account.
+// Returns everything the user still belongs to so the UI can switch over.
+router.post('/leave', async (req, res) => {
+  const parsed = z.object({ workspaceId: z.string().uuid('A valid workspace is required') }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+
+  const membership = await prisma.membership.findUnique({
+    where: { workspaceId_userId: { workspaceId: parsed.data.workspaceId, userId: req.userId } }
+  });
+  if (!membership) {
+    return res.status(404).json({ error: 'You are not a member of that workspace' });
+  }
+
+  if (membership.role === 'owner') {
+    const ownerCount = await prisma.membership.count({
+      where: { workspaceId: membership.workspaceId, role: 'owner' }
+    });
+    if (ownerCount <= 1) {
+      return res.status(400).json({
+        error: "You're the only owner — promote someone else to owner (or add a co-owner) before leaving."
+      });
+    }
+  }
+
+  const totalMemberships = await prisma.membership.count({ where: { userId: req.userId } });
+  if (totalMemberships <= 1) {
+    return res.status(400).json({
+      error: 'This is your only workspace. Create another workspace first if you want to leave it.'
+    });
+  }
+
+  await prisma.membership.delete({ where: { id: membership.id } });
+
+  const remaining = await prisma.membership.findMany({
+    where: { userId: req.userId },
+    orderBy: { createdAt: 'asc' },
+    include: { workspace: true }
+  });
+
+  res.json({
+    left: true,
+    leftWorkspaceId: membership.workspaceId,
+    remainingWorkspaces: remaining.map((m) => ({ id: m.workspace.id, name: m.workspace.name, role: m.role }))
+  });
+});
+
 // GET /api/workspaces/members — the team of the ACTIVE workspace.
 router.get('/members', async (req, res) => {
   const members = await prisma.membership.findMany({

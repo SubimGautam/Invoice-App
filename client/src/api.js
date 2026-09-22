@@ -99,6 +99,8 @@ export const api = {
     request(`/api/workspaces/members/${id}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
   removeMember: (id) =>
     request(`/api/workspaces/members/${id}`, { method: 'DELETE' }),
+  leaveWorkspace: (workspaceId) =>
+    request('/api/workspaces/leave', { method: 'POST', body: JSON.stringify({ workspaceId }) }),
   renameWorkspace: (name) =>
     request('/api/workspaces', { method: 'PATCH', body: JSON.stringify({ name }) }),
 

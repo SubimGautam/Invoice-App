@@ -105,7 +105,7 @@ export default function Signup() {
         zipCode,
         country
       });
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message);
     } finally {

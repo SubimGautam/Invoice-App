@@ -239,6 +239,10 @@ export default function EditInvoice() {
                 <option value="draft">Draft</option>
                 <option value="pending">Pending (send now)</option>
               </select>
+              <p className="text-xs text-[#9694a8] leading-relaxed">
+                <span className="font-semibold text-[#464555]">Draft</span> = save without sending (no email to the client).{' '}
+                <span className="font-semibold text-[#464555]">Pending</span> = send it right away.
+              </p>
             </div>
 
             <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-3">
@@ -348,7 +352,7 @@ export default function EditInvoice() {
               disabled={submitting}
               className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-6 py-2.5 rounded-xl transition-colors disabled:opacity-50"
             >
-              {submitting ? 'Saving...' : 'Save Changes'}
+              {submitting ? 'Saving...' : status === 'pending' ? 'Save & Send' : 'Save as Draft'}
             </button>
           </div>
         </form>

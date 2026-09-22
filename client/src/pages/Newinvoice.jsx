@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
@@ -154,7 +154,7 @@ function InvoicePreview({ profile, settings, client, items, notes, issueDate, du
             disabled={saving}
             className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-[#4f46e5] hover:bg-[#4338ca] transition-colors disabled:opacity-50"
           >
-            {saving ? 'Creating...' : settings.status === 'pending' ? 'Create & Send' : 'Create Invoice'}
+            {saving ? 'Creating...' : settings.status === 'pending' ? 'Create & Send' : 'Save as Draft'}
           </button>
         </div>
       </div>
@@ -186,6 +186,17 @@ export default function NewInvoice() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  // Keep submit errors visible: the form is long, so when a validation or API
+  // error appears, scroll it into view AND mirror it near the action buttons.
+  const topErrorBoxRef = useRef(null);
+  const bottomErrorBoxRef = useRef(null);
+  useEffect(() => {
+    if (error) {
+      const box = bottomErrorBoxRef.current || topErrorBoxRef.current;
+      box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [error]);
 
   const currencySymbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
 
@@ -311,7 +322,7 @@ export default function NewInvoice() {
 
     setSubmitting(true);
     try {
-      await api.createInvoice({
+      const created = await api.createInvoice({
         clientId,
         issueDate,
         dueDate,
@@ -320,7 +331,14 @@ export default function NewInvoice() {
         discount: discountValue,
         items: cleanedItems,
       });
-      navigate('/dashboard');
+      navigate('/dashboard', {
+        state: {
+          notice:
+            status === 'pending'
+              ? `Invoice ${created.invoiceNumber} sent to ${created.client?.name || 'the client'}.`
+              : `Invoice ${created.invoiceNumber} saved as a draft — nothing was sent. Open it from the Drafts list and hit "Save & Send" when you're ready.`,
+        },
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -363,7 +381,7 @@ export default function NewInvoice() {
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-6">
             {error && (
-              <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{error}</div>
+              <div ref={topErrorBoxRef} className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{error}</div>
             )}
 
             {/* Client + dates + status */}
@@ -418,6 +436,10 @@ export default function NewInvoice() {
                   <option value="draft">Draft</option>
                   <option value="pending">Pending (send now)</option>
                 </select>
+                <p className="text-xs text-[#9694a8] leading-relaxed">
+                  <span className="font-semibold text-[#464555]">Draft</span> = save without sending (no email to the client).{' '}
+                  <span className="font-semibold text-[#464555]">Pending</span> = send it right away.
+                </p>
               </div>
 
               <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-3">
@@ -555,6 +577,11 @@ export default function NewInvoice() {
             </div>
 
             <div className="flex items-center justify-end gap-3">
+              {error && (
+                <div ref={bottomErrorBoxRef} className="flex-1 min-w-0 bg-red-50 text-red-600 text-sm px-4 py-2.5 rounded-xl">
+                  {error}
+                </div>
+              )}
               <Link
                 to="/dashboard"
                 className="px-4 py-2 rounded-xl text-sm font-semibold text-[#464555] hover:bg-gray-100 transition-colors"
@@ -573,7 +600,7 @@ export default function NewInvoice() {
                 disabled={submitting}
                 className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-6 py-2.5 rounded-xl transition-colors disabled:opacity-50"
               >
-                {submitting ? 'Creating...' : 'Create Invoice'}
+                {submitting ? 'Creating...' : status === 'pending' ? 'Create & Send' : 'Save as Draft'}
               </button>
             </div>
           </form>
