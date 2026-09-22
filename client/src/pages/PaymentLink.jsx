@@ -49,6 +49,12 @@ export default function PaymentLink() {
   const [amount, setAmount] = useState('');
   const [startingEsewa, setStartingEsewa] = useState(false);
   const [esewaError, setEsewaError] = useState('');
+  // On phones there is no silent redirect: we hand the client a real link to tap
+  // (a genuine tap gives iOS/Android the user gesture needed to open the eSewa
+  // app — a programmatic location.href after a network call often loses it).
+  const isMobile = useMemo(() => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent), []);
+  const isIOS = useMemo(() => /iPad|iPhone|iPod/i.test(navigator.userAgent), []);
+  const [pendingPay, setPendingPay] = useState(null); // { url, amount } once eSewa has booked
 
   // Redirect-back resolution (after eSewa)
   const resolvedAttempt = useRef(null);
@@ -104,9 +110,15 @@ export default function PaymentLink() {
     setStartingEsewa(true);
     api.initiatePayLink(token, { amount: value, gateway: 'esewa' })
       .then((res) => {
-        // Hand the client to eSewa's checkout (app deeplink on mobile, ePay web on desktop).
-        window.location.href = res.paymentUrl;
         setStartingEsewa(false);
+        if (isMobile) {
+          // Show an 'Open eSewa' button the client taps — best chance the app
+          // (or eSewa's web checkout) actually opens on a phone.
+          setPendingPay({ url: res.paymentUrl, amount: value });
+        } else {
+          // Desktop: eSewa's checkout is a web page, so a straight redirect is fine.
+          window.location.href = res.paymentUrl;
+        }
       })
       .catch((err) => {
         setEsewaError(err.message);
@@ -309,7 +321,54 @@ export default function PaymentLink() {
             </div>
           )}
 
+          {/* Mobile handoff step after eSewa books the payment (phones):
+              a real link the client taps — the app (or eSewa's web page)
+              opens, instead of a scripted redirect the phone may ignore. */}
+          {pendingPay && (
+            <div className="mb-5 rounded-xl border border-[#cfe3f5] bg-[#f2f9ff] p-5">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="inline-flex w-6 h-6 items-center justify-center rounded-full bg-[#1287d1] text-white text-xs font-bold">e</span>
+                <h3 className="font-bold text-[#131b2e] text-[15px]">Ready to pay in eSewa</h3>
+              </div>
+              <p className="text-[13px] text-[#464555] mb-4 leading-relaxed">
+                Your payment of <span className="font-mono font-bold text-[#131b2e]">{formatMoney(pendingPay.amount, invoice.currency)}</span> is booked.
+                Tap the button to open eSewa and approve it.
+              </p>
+              <a
+                href={pendingPay.url}
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 bg-[#1287d1] hover:bg-[#0e74b8] text-white font-semibold text-[15px] py-3 rounded-xl transition-colors"
+              >
+                Open eSewa to approve payment →
+              </a>
+              <p className="mt-2.5 text-[11px] leading-relaxed text-[#777587]">
+                Tip: if it stays on this page, the eSewa app isn't installed or you're reading
+                this inside Gmail/WhatsApp's built-in browser — open this page in Chrome or Safari first.
+              </p>
+              <div className="mt-3 pt-3 border-t border-[#dceafa] text-[11px] text-[#777587] text-center">
+                Don't have eSewa?{' '}
+                {isIOS ? (
+                  <a href="https://apps.apple.com/search?term=eSewa" rel="noopener noreferrer" className="text-[#1287d1] font-semibold">
+                    Get it from the App Store
+                  </a>
+                ) : (
+                  <a href="https://play.google.com/store/apps/details?id=com.f1soft.esewa" rel="noopener noreferrer" className="text-[#1287d1] font-semibold">
+                    Get it from Google Play
+                  </a>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setPendingPay(null); setEsewaError(''); }}
+                className="mt-2 w-full text-center text-xs text-[#a5a2bd] hover:text-[#464555] transition-colors"
+              >
+                Change amount or start over →
+              </button>
+            </div>
+          )}
+
           {/* Pay with eSewa */}
+          {!pendingPay && (
           <form onSubmit={handleEsewaPay} noValidate>
             <label className="block mb-4">
               <span className="flex items-center justify-between text-xs font-semibold text-[#464555] mb-1.5">
@@ -344,7 +403,7 @@ export default function PaymentLink() {
               className="w-full flex items-center justify-center gap-2.5 bg-[#1287d1] hover:bg-[#0e74b8] disabled:opacity-50 text-white font-semibold text-[15px] py-3 rounded-xl transition-colors"
             >
               {startingEsewa && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-              {startingEsewa ? 'Redirecting to eSewa…' : (
+              {startingEsewa ? 'Preparing payment…' : (
                 <>
                   <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold">e</span>
                   Pay {formatMoney(Number(amount) || 0, invoice.currency)} with eSewa
@@ -355,6 +414,7 @@ export default function PaymentLink() {
               eSewa wallet · mobile banking · cards — in test mode, no real charge yet
             </p>
           </form>
+          )}
 
           {/* Demo checkout fallback */}
           <div className="mt-5 pt-5 border-t border-[#eeeeff]">
