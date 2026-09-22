@@ -9,6 +9,7 @@ router.use(requireAuth);
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
+  type: z.enum(['Service', 'Product', 'Retainer']).optional().default('Service'),
   description: z.string().optional(),
   sku: z.string().optional(),
   price: z.number().nonnegative('Price cannot be negative'),
@@ -18,13 +19,39 @@ const productSchema = z.object({
   category: z.string().optional()
 });
 
-// GET /api/products — the active workspace's catalog (any member can read)
+// GET /api/products — the active workspace's catalog (any member can read),
+// with per-item revenue for the current calendar year ("Invoiced YTD"):
+// the sum of invoice line items that were picked from this product, excluding
+// draft invoices. The totals come from InvoiceItem records — never typed by hand.
 router.get('/', async (req, res) => {
   const products = await prisma.product.findMany({
     where: { workspaceId: req.workspaceId },
     orderBy: { name: 'asc' }
   });
-  res.json(products);
+
+  const startOfYear = new Date(new Date().getFullYear(), 0, 1);
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      productId: { in: products.map((p) => p.id) },
+      invoice: { workspaceId: req.workspaceId, status: { not: 'draft' }, issueDate: { gte: startOfYear } }
+    },
+    select: { productId: true, quantity: true, unitPrice: true }
+  });
+
+  const totals = {};
+  const counts = {};
+  for (const it of items) {
+    totals[it.productId] = (totals[it.productId] || 0) + Number(it.quantity) * Number(it.unitPrice);
+    counts[it.productId] = (counts[it.productId] || 0) + 1;
+  }
+
+  const withRevenue = products.map((p) => ({
+    ...p,
+    invoicedYTD: Math.round((totals[p.id] || 0) * 100) / 100,
+    invoiceCount: counts[p.id] || 0
+  }));
+
+  res.json(withRevenue);
 });
 
 // POST /api/products — create a product (staff+)

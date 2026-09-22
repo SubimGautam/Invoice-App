@@ -1,3 +1,7 @@
+// This file intentionally exports both a provider component and a hook —
+// splitting them would add boilerplate for no benefit. The fast-refresh
+// rule is disabled for that reason.
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback } from 'react';
 import { api } from '../api';
 

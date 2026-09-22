@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import imgDashboardIcon from '../assets/Dashboard.png';
 import imgProductsIcon from '../assets/Product.png';
 import imgClientsIcon from '../assets/Client.png';
+import imgPaymentsIcon from '../assets/Payments.svg';
 import imgRecurringIcon from '../assets/Recurring.png';
 import imgReportsIcon from '../assets/Reports.png';
 import imgSettingsIcon from '../assets/Setting.png';
@@ -17,6 +18,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: imgDashboardIcon },
   { to: '/products', label: 'Products', icon: imgProductsIcon },
   { to: '/clients', label: 'Clients', icon: imgClientsIcon },
+  { to: '/payments', label: 'Payments', icon: imgPaymentsIcon },
   { to: '/recurring', label: 'Recurring', icon: imgRecurringIcon },
   { to: '/reports', label: 'Reports', icon: imgReportsIcon },
   { to: '/settings', label: 'Settings', icon: imgSettingsIcon },

@@ -486,7 +486,7 @@ router.patch('/:id/status', requireRole('owner', 'admin', 'staff'), async (req, 
   const paid = paidSum(invoice.payments);
   const remaining = Math.max(0, total - paid);
   const paymentsToRecord = parsed.data.status === 'paid' && remaining > MONEY_EPSILON
-    ? [{ amount: remaining, method: 'Other', reference: 'Marked as paid', paymentDate: new Date() }]
+    ? [{ workspaceId: req.workspaceId, amount: remaining, method: 'Other', reference: 'Marked as paid', paymentDate: new Date() }]
     : [];
 
   const updated = await prisma.invoice.update({

@@ -63,6 +63,13 @@ export const api = {
   // --- Payments ---
   recordPayment: (payload) =>
     request('/api/payments', { method: 'POST', body: JSON.stringify(payload) }),
+  getPayments: (months = 0) => request(`/api/payments?months=${months}`),
+  recordUnallocatedPayment: (payload) =>
+    request('/api/payments/unallocated', { method: 'POST', body: JSON.stringify(payload) }),
+  allocatePayment: (id, invoiceId) =>
+    request(`/api/payments/${id}/allocate`, { method: 'POST', body: JSON.stringify({ invoiceId }) }),
+  refundPayment: (id, payload) =>
+    request(`/api/payments/${id}/refund`, { method: 'POST', body: JSON.stringify(payload) }),
 
   // --- Products ---
   getProducts: () => request('/api/products'),

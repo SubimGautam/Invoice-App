@@ -38,10 +38,6 @@ export default function EditInvoice() {
     return `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   }
 
-  useEffect(() => {
-    load();
-  }, [id]);
-
   async function load() {
     setLoading(true);
     setLoadError('');
@@ -78,6 +74,11 @@ export default function EditInvoice() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [id]);
 
   function updateItem(index, field, value) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));

@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
+import { formatMoney } from '../lib/currency';
 
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
 const imgSearchIcon = "https://www.figma.com/api/mcp/asset/43fbf5d1-f4ec-4e81-ad71-b7cdabc39b32.svg";
 const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
 
+const TYPES = ['Service', 'Product', 'Retainer'];
+const TYPE_HINT = {
+  Service: 'Billed by the hour or unit of work — e.g. website development.',
+  Product: 'A good you sell per unit — tracked with stock on hand.',
+  Retainer: 'A recurring thing billed per period — e.g. a monthly SEO contract.',
+};
+
 const EMPTY_FORM = {
   name: '',
+  type: 'Service',
   description: '',
   sku: '',
   price: '0',
@@ -17,8 +26,27 @@ const EMPTY_FORM = {
   category: '',
 };
 
-function formatMoney(n) {
-  return `Rs. ${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+function money(n, currency) {
+  return formatMoney(n, currency);
+}
+
+function KpiCard({ label, value, sub, accent }) {
+  return (
+    <div className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-4">
+      <p className="text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#777587]">{label}</p>
+      <p className={`mt-1.5 text-2xl font-bold tracking-[-0.5px] ${accent ? 'text-[#3525cd]' : 'text-[#131b2e]'}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-[#777587]">{sub}</p>
+    </div>
+  );
+}
+
+function TypeBadge({ type }) {
+  const styles = {
+    Service: 'bg-[#e2e7ff] text-[#3525cd]',
+    Product: 'bg-[#dff6e9] text-[#0e7a41]',
+    Retainer: 'bg-[#fff4e0] text-[#a05c00]'
+  };
+  return <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${styles[type] || styles.Service}`}>{type}</span>;
 }
 
 function ProductModal({ initialValues, onClose, onSubmit, saving, error }) {
@@ -55,6 +83,25 @@ function ProductModal({ initialValues, onClose, onSubmit, saving, error }) {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Type</label>
+            <div className="grid grid-cols-3 gap-2">
+              {TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => update('type', t)}
+                  className={`h-10 rounded-lg text-sm font-semibold transition-colors ${
+                    form.type === t ? 'bg-[#4f46e5] text-white shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1)]' : 'bg-[#f2f3ff] text-[#464555] hover:bg-[#e2e7ff]'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-[#777587]">{TYPE_HINT[form.type]}</p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Name</label>
@@ -126,7 +173,7 @@ function ProductModal({ initialValues, onClose, onSubmit, saving, error }) {
                 type="text"
                 value={form.unit}
                 onChange={(e) => update('unit', e.target.value)}
-                placeholder="pcs"
+                placeholder={form.type === 'Service' ? 'hr' : form.type === 'Retainer' ? 'mo' : 'pcs'}
                 className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
               />
             </div>
@@ -181,6 +228,9 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [currency, setCurrency] = useState('NPR');
+  const [typeTab, setTypeTab] = useState('all'); // 'all' | 'Service' | 'Product' | 'Retainer'
+  const [taxFilter, setTaxFilter] = useState('all');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -190,6 +240,7 @@ export default function Products() {
 
   useEffect(() => {
     loadProducts();
+    api.getSettings().then((s) => setCurrency(s.currency || 'NPR')).catch(() => {});
   }, []);
 
   async function loadProducts() {
@@ -249,15 +300,32 @@ export default function Products() {
   }
 
   const filtered = useMemo(() => {
-    if (!search) return products;
+    let list = products;
+    if (typeTab !== 'all') list = list.filter((p) => p.type === typeTab);
+    if (taxFilter !== 'all') list = list.filter((p) => Number(p.taxRate) === Number(taxFilter));
+    if (!search) return list;
     const q = search.toLowerCase();
-    return products.filter(
+    return list.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         (p.sku || '').toLowerCase().includes(q) ||
         (p.category || '').toLowerCase().includes(q)
     );
-  }, [products, search]);
+  }, [products, search, typeTab, taxFilter]);
+
+  // "Invoiced YTD" KPIs — computed server-side from InvoiceItem lines, never
+  // typed by hand: what did this item actually bring in this calendar year?
+  const kpis = useMemo(() => {
+    const ytdTotal = products.reduce((n, p) => n + Number(p.invoicedYTD || 0), 0);
+    const topItem = products.reduce(
+      (best, p) => (Number(p.invoicedYTD || 0) > Number(best?.invoicedYTD || 0) ? p : best),
+      null
+    );
+    const typeCounts = TYPES.map((t) => ({ type: t, count: products.filter((p) => p.type === t).length }));
+    return { ytdTotal, topItem, typeCounts };
+  }, [products]);
+
+  const taxOptions = useMemo(() => [...new Set(products.map((p) => p.taxRate))].sort((a, b) => a - b), [products]);
 
   return (
     <DashboardLayout>
@@ -287,43 +355,98 @@ export default function Products() {
           </div>
         )}
 
+        {/* Revenue KPIs for this calendar year */}
+        <div className="mt-5 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <KpiCard
+            label="Invoiced YTD"
+            value={money(kpis.ytdTotal, currency)}
+            sub="What all items brought in this year"
+          />
+          <KpiCard
+            label="Top item"
+            value={kpis.topItem ? kpis.topItem.name : '—'}
+            sub={kpis.topItem ? `${money(kpis.topItem.invoicedYTD, currency)} invoiced this year` : 'No items invoice-linked yet'}
+            accent={Boolean(kpis.topItem && kpis.topItem.invoicedYTD > 0)}
+          />
+          {kpis.typeCounts.map(({ type, count }) => (
+            <KpiCard
+              key={type}
+              label={`${type}s`}
+              value={String(count)}
+              sub={count === 0 ? 'Nothing catalogued yet' : type === 'Retainer' ? 'Billed per period' : type === 'Service' ? 'Billed by work done' : 'Sold per unit'}
+            />
+          ))}
+        </div>
+
         {loading ? (
           <div className="mt-6 bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-10 text-center text-sm text-[#464555]">
             Loading products...
           </div>
         ) : (
           <div className="mt-6 bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] overflow-hidden">
-            <div className="p-4">
-              <div className="relative max-w-md">
-                <img src={imgSearchIcon} alt="" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by name, SKU or category..."
-                  className="w-full h-10 pl-9 pr-4 rounded-xl bg-[#f2f3ff] text-sm text-[#131b2e] placeholder:text-[rgba(70,69,85,0.7)] focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+            <div className="p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                {[{ v: 'all', label: 'All' }, ...TYPES.map((t) => ({ v: t, label: t }))].map(({ v, label }) => {
+                  const count = v === 'all' ? products.length : products.filter((p) => p.type === v).length;
+                  const active = typeTab === v;
+                  return (
+                    <button
+                      key={v}
+                      onClick={() => setTypeTab(v)}
+                      className={`inline-flex items-center gap-1.5 px-3.5 h-9 rounded-full text-sm font-semibold transition-colors ${
+                        active ? 'bg-[#3525cd] text-white' : 'bg-[#f2f3ff] text-[#464555] hover:bg-[#e2e7ff]'
+                      }`}
+                    >
+                      {label}
+                      <span className={`text-[11px] font-mono ${active ? 'text-white/80' : 'text-[#777587]'}`}>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative max-w-md flex-1">
+                  <img src={imgSearchIcon} alt="" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by name, SKU or category..."
+                    className="w-full h-10 pl-9 pr-4 rounded-xl bg-[#f2f3ff] text-sm text-[#131b2e] placeholder:text-[rgba(70,69,85,0.7)] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <select
+                  value={taxFilter}
+                  onChange={(e) => setTaxFilter(e.target.value)}
+                  className="h-10 px-3 rounded-xl bg-[#f2f3ff] text-sm text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="all">All tax rates</option>
+                  {taxOptions.map((r) => (
+                    <option key={r} value={r}>{r}% tax</option>
+                  ))}
+                </select>
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
+              <table className="w-full min-w-[980px] text-sm">
                 <thead>
                   <tr className="bg-[#f2f3ff]">
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-6 py-2">Product</th>
+                    <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Type</th>
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">SKU</th>
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Category</th>
                     <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Price</th>
                     <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Tax</th>
                     <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Unit</th>
                     <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Stock</th>
+                    <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Invoiced YTD</th>
                     <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-6 py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="text-center text-[#464555] text-sm py-10">
+                      <td colSpan={10} className="text-center text-[#464555] text-sm py-10">
                         {products.length === 0 ? (
                           <>
                             No products yet.{' '}
@@ -353,19 +476,31 @@ export default function Products() {
                           </div>
                         </div>
                       </td>
+                      <td className="px-4 py-4"><TypeBadge type={product.type} /></td>
                       <td className="px-4 py-4 text-[#464555] font-mono">{product.sku || '—'}</td>
                       <td className="px-4 py-4 text-[#464555]">{product.category || '—'}</td>
-                      <td className="px-4 py-4 text-right font-semibold text-[#131b2e]">{formatMoney(product.price)}</td>
+                      <td className="px-4 py-4 text-right font-semibold text-[#131b2e]">{money(product.price, currency)}</td>
                       <td className="px-4 py-4 text-right text-[#464555]">{product.taxRate}%</td>
                       <td className="px-4 py-4 text-center text-[#464555]">{product.unit || '—'}</td>
                       <td className="px-4 py-4 text-center">
-                        <span
-                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
-                            product.stock > 0 ? 'bg-[#e2e7ff] text-[#3525cd]' : 'bg-gray-100 text-[#464555]'
-                          }`}
-                        >
-                          {product.stock}
-                        </span>
+                        {product.type === 'Product' ? (
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              product.stock > 0 ? 'bg-[#e2e7ff] text-[#3525cd]' : 'bg-gray-100 text-[#464555]'
+                            }`}
+                          >
+                            {product.stock}
+                          </span>
+                        ) : (
+                          <span className="text-[#c9c6da]">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        {Number(product.invoicedYTD || 0) > 0 ? (
+                          <span className="font-mono font-semibold text-[#0e7a41]">{money(product.invoicedYTD, currency)}</span>
+                        ) : (
+                          <span className="text-[#c9c6da] font-mono">{money(0, currency)}</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
@@ -393,8 +528,9 @@ export default function Products() {
             <div className="p-4 border-t border-gray-50">
               <p className="text-xs text-[#464555]">
                 Showing <span className="font-semibold text-[#131b2e]">{filtered.length}</span> of{' '}
-                <span className="font-semibold text-[#131b2e]">{products.length}</span> products. Tip: services
-                businesses can leave Stock at 0 and just use Name + Price.
+                <span className="font-semibold text-[#131b2e]">{products.length}</span> products. Invoiced YTD is
+                calculated from your invoice line items — pick a product in an invoice and its revenue counts itself.
+                Stock only applies to Products; leave it at 0 for Services and Retainers.
               </p>
             </div>
           </div>

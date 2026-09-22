@@ -53,6 +53,7 @@ model Workspace {
   notifications Notification[]
   emailLogs    EmailLog[]
   paymentAttempts PaymentAttempt[]
+  payments     Payment[]
 }
 
 model Membership {
@@ -195,18 +196,34 @@ model Invoice {
 // these + the invoice total: sum(payments) < total -> partially_paid,
 // sum(payments) >= total -> paid. Methods are free-form so new Nepali
 // payment providers (eSewa, Khalti, bank transfer, etc.) don't need schema changes.
+// A payment received or recorded. `amount` is negative for refunds.
+// `kind` distinguishes money received ('payment') from money given back
+// ('refund'); refunds point at the original row via refundOfId.
+// `invoiceId` is NULL when money arrived but hasn't been matched to an invoice
+// yet — that's an "unallocated" receipt, common when a client's bank transfer
+// doesn't carry the invoice number. In-flight gateway bookings are tracked in
+// PaymentAttempt (status pending), not here.
 model Payment {
-  id          String   @id @default(uuid())
-  invoiceId   String
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoiceId   String?
+  invoice     Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   amount      Decimal
+  kind        String    @default("payment") // 'payment' | 'refund'
+  status      String    @default("settled") // 'settled' — processing lives in PaymentAttempt
   method      String
-  paymentDate DateTime @default(now())
+  paymentDate DateTime  @default(now())
   reference   String?
   notes       String?
-  createdAt   DateTime @default(now())
+  refundOfId  String?
+  refundOf    Payment?  @relation("PaymentRefunds", fields: [refundOfId], references: [id], onDelete: SetNull)
+  refunds     Payment[] @relation("PaymentRefunds")
+  createdAt   DateTime  @default(now())
 
+  @@index([workspaceId, paymentDate])
   @@index([invoiceId])
+  @@index([refundOfId])
 }
 
 model InvoiceItem {
@@ -235,6 +252,11 @@ model Product {
   userId      String
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
+  // What kind of thing this is — shapes how it's billed and displayed:
+  //   Service  — billed by the hour/unit of work (e.g. site development)
+  //   Product  — a physical/digital good sold per unit (e.g. hosting)
+  //   Retainer — a recurring thing billed per period (e.g. monthly SEO)
+  type        String       @default("Service")
   description String?
   sku         String?
   price       Decimal

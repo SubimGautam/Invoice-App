@@ -126,7 +126,16 @@ async function recordPayment({ invoice, amount, method, reference, notes, attemp
 
   await prisma.$transaction([
     prisma.payment.create({
-      data: { invoiceId: invoice.id, amount, method, reference, notes }
+      data: {
+        workspaceId: invoice.workspaceId,
+        invoiceId: invoice.id,
+        amount,
+        kind: 'payment',
+        status: 'settled',
+        method,
+        reference,
+        notes
+      }
     }),
     prisma.invoice.update({
       where: { id: invoice.id },
