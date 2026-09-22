@@ -77,13 +77,22 @@ export function AuthProvider({ children }) {
     });
   }
 
+  // Merge fields into the signed-in user (e.g. after an avatar upload).
+  function updateUser(partial) {
+    setUser((u) => {
+      const next = { ...(u || {}), ...partial };
+      localStorage.setItem('user', JSON.stringify(next));
+      return next;
+    });
+  }
+
   const role = workspace?.role || null;
   const canManage = role === 'owner' || role === 'admin';
   const canWrite = canManage || role === 'staff';
 
   return (
     <AuthContext.Provider
-      value={{ user, workspace, role, canManage, canWrite, loading, login, signup, store, applySession, updateWorkspace, logout }}
+      value={{ user, workspace, role, canManage, canWrite, loading, login, signup, store, applySession, updateWorkspace, updateUser, logout }}
     >
       {children}
     </AuthContext.Provider>

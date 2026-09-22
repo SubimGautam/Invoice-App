@@ -1,11 +1,13 @@
 import { NavLink, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Avatar from './Avatar';
 
 // Sidebar icons — uploaded into src/assets.
 import imgDashboardIcon from '../assets/Dashboard.png';
 import imgProductsIcon from '../assets/Product.png';
 import imgClientsIcon from '../assets/Client.png';
 import imgPaymentsIcon from '../assets/Payments.svg';
+import imgBellIcon from '../assets/Bell.svg';
 import imgRecurringIcon from '../assets/Recurring.png';
 import imgReportsIcon from '../assets/Reports.png';
 import imgSettingsIcon from '../assets/Setting.png';
@@ -19,6 +21,7 @@ const navItems = [
   { to: '/products', label: 'Products', icon: imgProductsIcon },
   { to: '/clients', label: 'Clients', icon: imgClientsIcon },
   { to: '/payments', label: 'Payments', icon: imgPaymentsIcon },
+  { to: '/notifications', label: 'Notifications', icon: imgBellIcon },
   { to: '/recurring', label: 'Recurring', icon: imgRecurringIcon },
   { to: '/reports', label: 'Reports', icon: imgReportsIcon },
   { to: '/settings', label: 'Settings', icon: imgSettingsIcon },
@@ -28,16 +31,6 @@ const navItems = [
 const manageItems = [
   { to: '/members', label: 'Team & Members', icon: imgMembersIcon },
 ];
-
-function initials(name) {
-  if (!name) return '?';
-  return name
-    .split(' ')
-    .map((p) => p[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export default function Sidebar() {
   const { user, workspace, canManage } = useAuth();
@@ -109,9 +102,7 @@ export default function Sidebar() {
       </div>
 
       <div className="border-t border-[rgba(199,196,216,0.3)] px-4 py-4 flex items-center gap-2">
-        <div className="w-9 h-9 rounded-full bg-[#e2e7ff] flex items-center justify-center shrink-0">
-          <span className="text-xs font-semibold text-[#3525cd]">{initials(user?.name)}</span>
-        </div>
+        <Avatar url={user?.avatarUrl} name={user?.name} sizeClass="w-9 h-9" textClass="text-xs" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-[#131b2e] truncate">{user?.name || 'Account'}</p>
           <p className="text-xs font-mono text-[#464555] truncate">{user?.email}</p>

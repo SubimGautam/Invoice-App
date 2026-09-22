@@ -78,7 +78,7 @@ router.post('/signup', async (req, res) => {
 
   res.status(201).json({
     token: issueToken(user.id, workspace.id),
-    user: { id: user.id, name: user.name, email: user.email },
+    user: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl },
     workspace: { id: workspace.id, name: workspace.name, role: 'owner' }
   });
 });
@@ -114,7 +114,7 @@ router.post('/login', async (req, res) => {
 
   res.json({
     token: issueToken(user.id, membership.workspaceId),
-    user: { id: user.id, name: user.name, email: user.email },
+    user: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl },
     workspace: { id: membership.workspace.id, name: membership.workspace.name, role: membership.role }
   });
 });

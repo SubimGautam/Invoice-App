@@ -25,6 +25,36 @@ async function request(endpoint, options = {}) {
   return data;
 }
 
+// Multipart upload helper. Unlike `request` it deliberately does NOT set a
+// Content-Type header — the browser fills the multipart boundary itself.
+async function upload(endpoint, file) {
+  const token = getToken();
+  const form = new FormData();
+  form.append('file', file);
+
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Upload failed');
+  }
+  return data;
+}
+
+// Resolve an uploaded file path (/uploads/...) to a full URL served by the
+// API server. External URLs pass through untouched (e.g. a logo hosted on
+// your own CDN, or a Figma asset).
+export function assetUrl(path) {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith('/')) return `${API_URL}${path}`;
+  return path;
+}
+
 export const api = {
   signup: (payload) =>
     request('/api/auth/signup', { method: 'POST', body: JSON.stringify(payload) }),
@@ -113,13 +143,19 @@ export const api = {
     request('/api/workspaces', { method: 'PATCH', body: JSON.stringify({ name }) }),
 
   // --- Notifications ---
-  getNotifications: (limit = 50) =>
-    request(`/api/notifications?limit=${limit}`),
+  getNotifications: (limit = 50, page = 1) =>
+    request(`/api/notifications?limit=${limit}&page=${page}`),
   getNotificationCount: () => request('/api/notifications/unread-count'),
   readNotification: (id) =>
     request(`/api/notifications/${id}/read`, { method: 'PATCH' }),
   readAllNotifications: () =>
     request('/api/notifications/read-all', { method: 'PATCH' }),
+
+  // --- Profile picture (avatar) + business logo uploads ---
+  uploadAvatar: (file) => upload('/api/account/avatar', file),
+  removeAvatar: () => request('/api/account/avatar', { method: 'DELETE' }),
+  uploadLogo: (file) => upload('/api/account/logo', file),
+  removeLogo: () => request('/api/account/logo', { method: 'DELETE' }),
 
   // --- Emails (send) ---
   sendInvoiceEmail: (id) =>

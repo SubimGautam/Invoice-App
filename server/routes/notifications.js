@@ -8,17 +8,25 @@ const router = express.Router();
 router.use(requireAuth);
 
 // GET /api/notifications — the caller's own feed (across their workspaces'.
-// The bell in the app shows the active workspace's events.)
+// The bell in the app shows the active workspace's events.
+// Query: ?page=N&limit=M — returns { notifications, total, unreadCount, page, limit }.
 router.get('/', async (req, res) => {
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const where = { userId: req.userId, workspaceId: req.workspaceId };
   // Notification messages already embed the invoice number, and invoiceId
   // lets the UI link through to the invoice — no relation needed.
-  const notifications = await prisma.notification.findMany({
-    where: { userId: req.userId, workspaceId: req.workspaceId },
-    orderBy: { createdAt: 'desc' },
-    take: limit
-  });
-  res.json(notifications);
+  const [notifications, total, unreadCount] = await Promise.all([
+    prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit
+    }),
+    prisma.notification.count({ where }),
+    prisma.notification.count({ where: { ...where, readAt: null } })
+  ]);
+  res.json({ notifications, total, unreadCount, page, limit });
 });
 
 // GET /api/notifications/unread-count

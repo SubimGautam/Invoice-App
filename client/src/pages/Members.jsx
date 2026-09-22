@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import Avatar from '../components/Avatar';
 
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
 const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
@@ -189,11 +190,7 @@ export default function Members() {
                       <tr key={member.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-[#e2e7ff] flex items-center justify-center shrink-0">
-                              <span className="text-[13px] font-semibold text-[#3525cd]">
-                                {(member.user.name || '?').slice(0, 2).toUpperCase()}
-                              </span>
-                            </div>
+                            <Avatar url={member.user.avatarUrl} name={member.user.name} />
                             <div>
                               <p className="font-semibold text-[#131b2e]">
                                 {member.user.name}

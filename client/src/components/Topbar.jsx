@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import Avatar from './Avatar';
 import imgLogoutIcon from '../assets/Logout.png';
 
 const imgBellIcon = "https://www.figma.com/api/mcp/asset/a5ba9df9-fe7a-42b3-bc1e-30920939bc2a.svg";
@@ -16,16 +17,6 @@ const ROLE_STYLES = {
   staff: 'bg-[#fdf0d8] text-[#9a6b00]',
   viewer: 'bg-gray-100 text-[#464555]',
 };
-
-function initials(name) {
-  if (!name) return '?';
-  return name
-    .split(' ')
-    .map((p) => p[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function timeAgo(dateStr) {
   const s = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -177,8 +168,8 @@ export default function TopBar() {
     setOpen(next);
     if (next) {
       try {
-        const list = await api.getNotifications(50);
-        setFeed(list);
+        const { notifications } = await api.getNotifications(50);
+        setFeed(notifications);
         refreshCount();
       } catch {
         setFeed([]);
@@ -355,6 +346,15 @@ export default function TopBar() {
                   ))
                 )}
               </div>
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  navigate('/notifications');
+                }}
+                className="w-full text-center py-2.5 text-sm font-semibold text-[#4f46e5] hover:bg-[#f8f7ff] transition-colors border-t border-[rgba(199,196,216,0.3)]"
+              >
+                View all notifications →
+              </button>
             </div>
           )}
         </div>
@@ -364,9 +364,7 @@ export default function TopBar() {
         </button>
         <div className="w-px h-6 bg-[rgba(199,196,216,0.4)] mx-1" />
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-[#e2e7ff] flex items-center justify-center">
-            <span className="text-xs font-semibold text-[#3525cd]">{initials(user?.name)}</span>
-          </div>
+          <Avatar url={user?.avatarUrl} name={user?.name} />
           <img src={imgChevron} alt="" className="w-2 h-1.5 opacity-60 hidden sm:block" />
         </div>
         <div className="w-px h-6 bg-[rgba(199,196,216,0.4)] mx-1" />

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../api';
+import { api, assetUrl } from '../api';
+import Avatar from '../components/Avatar';
 
 const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
 
@@ -52,11 +53,17 @@ function Field({ label, disabled, ...props }) {
 }
 
 export default function Settings() {
-  const { workspace, canWrite, canManage, updateWorkspace } = useAuth();
+  const { user, workspace, canWrite, canManage, updateWorkspace, updateUser } = useAuth();
   const readOnly = !canWrite;
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+
+  // Avatar + logo upload state.
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoActionError, setLogoActionError] = useState('');
 
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -166,6 +173,64 @@ export default function Settings() {
     }
   }
 
+  async function handleAvatarUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarBusy(true);
+    setAvatarError('');
+    try {
+      const { user: updated } = await api.uploadAvatar(file);
+      updateUser({ avatarUrl: updated.avatarUrl });
+    } catch (err) {
+      setAvatarError(err.message);
+    } finally {
+      setAvatarBusy(false);
+      e.target.value = ''; // allow re-selecting the same file next time
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarBusy(true);
+    setAvatarError('');
+    try {
+      const { user: updated } = await api.removeAvatar();
+      updateUser({ avatarUrl: updated.avatarUrl });
+    } catch (err) {
+      setAvatarError(err.message);
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function handleLogoUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoBusy(true);
+    setLogoActionError('');
+    try {
+      const updated = await api.uploadLogo(file);
+      updateProfileField('logoUrl', updated.logoUrl || '');
+    } catch (err) {
+      setLogoActionError(err.message);
+    } finally {
+      setLogoBusy(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleLogoRemove() {
+    setLogoBusy(true);
+    setLogoActionError('');
+    try {
+      await api.removeLogo();
+      updateProfileField('logoUrl', '');
+    } catch (err) {
+      setLogoActionError(err.message);
+    } finally {
+      setLogoBusy(false);
+    }
+  }
+
   return (
     <DashboardLayout>
       <div className="py-4">
@@ -196,6 +261,49 @@ export default function Settings() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 items-start">
+            {/* Profile photo — personal, editable by anyone (even read-only roles) */}
+            <div className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-5">
+              <h2 className="font-bold text-[#131b2e] mb-1">Profile photo</h2>
+              <p className="text-xs text-[#464555] mb-5">
+                Your picture replaces the initials shown in the topbar and sidebar. Use a clear headshot or your business logo.
+              </p>
+
+              {avatarError && (
+                <div className="mb-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{avatarError}</div>
+              )}
+
+              <div className="flex items-center gap-4">
+                <Avatar url={user?.avatarUrl} name={user?.name} sizeClass="w-20 h-20" textClass="text-2xl" />
+                <div className="flex flex-col gap-2">
+                  <label
+                    className={`cursor-pointer inline-flex items-center justify-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors ${avatarBusy ? 'opacity-50 pointer-events-none' : ''}`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <path d="M12 5v14m-7-7h14" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {avatarBusy ? 'Uploading…' : user?.avatarUrl ? 'Change photo' : 'Upload photo'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={handleAvatarUpload}
+                      disabled={avatarBusy}
+                      className="hidden"
+                    />
+                  </label>
+                  {user?.avatarUrl && (
+                    <button
+                      onClick={handleAvatarRemove}
+                      disabled={avatarBusy}
+                      className="text-sm font-semibold text-[#ba1a1a] hover:underline text-left disabled:opacity-50"
+                    >
+                      Remove photo
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-[#9694a8] mt-4">PNG, JPG, WEBP or GIF up to 3 MB.</p>
+            </div>
+
             {/* Workspace */}
             {canManage && (
               <form onSubmit={handleRenameWorkspace} className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-5">
@@ -293,12 +401,53 @@ export default function Settings() {
                 <Field label="Account Number" value={profile.accountNumber || ''} onChange={(e) => updateProfileField('accountNumber', e.target.value)} />
               </div>
 
-              <Field
-                label="Logo URL"
-                placeholder="https://..."
-                value={profile.logoUrl || ''}
-                onChange={(e) => updateProfileField('logoUrl', e.target.value)}
-              />
+              {logoActionError && (
+                <div className="mb-3 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl">{logoActionError}</div>
+              )}
+
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <Field
+                    label="Logo URL"
+                    placeholder="https://... (or upload below)"
+                    value={profile.logoUrl || ''}
+                    onChange={(e) => updateProfileField('logoUrl', e.target.value)}
+                  />
+                </div>
+                {profile.logoUrl && (
+                  <div className="w-12 h-10 rounded-lg border border-[rgba(199,196,216,0.4)] overflow-hidden bg-white flex items-center justify-center p-1 shrink-0">
+                    <img
+                      src={assetUrl(profile.logoUrl)}
+                      alt="Current logo preview"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 pb-0.5">
+                  <label
+                    className={`cursor-pointer inline-flex items-center justify-center text-xs font-semibold px-3 py-2 rounded-lg border border-[#e2e7ff] text-[#3525cd] bg-white hover:bg-[#f4f5ff] transition-colors ${logoBusy ? 'opacity-50 pointer-events-none' : ''}`}
+                  >
+                    {logoBusy ? 'Uploading…' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={handleLogoUpload}
+                      disabled={logoBusy}
+                      className="hidden"
+                    />
+                  </label>
+                  {profile.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={handleLogoRemove}
+                      disabled={logoBusy}
+                      className="text-xs font-semibold text-[#ba1a1a] hover:underline disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
               </fieldset>
 
               <div className="pt-5">

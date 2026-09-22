@@ -129,7 +129,7 @@ router.post('/leave', async (req, res) => {
 router.get('/members', async (req, res) => {
   const members = await prisma.membership.findMany({
     where: { workspaceId: req.workspaceId },
-    include: { user: { select: { id: true, name: true, email: true, createdAt: true } } },
+    include: { user: { select: { id: true, name: true, email: true, avatarUrl: true, createdAt: true } } },
     orderBy: { createdAt: 'asc' }
   });
   res.json(
