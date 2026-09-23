@@ -28,6 +28,8 @@ export default function EditInvoice() {
   const [status, setStatus] = useState('draft');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
+  const [discount, setDiscount] = useState('');
+  const [taxRate, setTaxRate] = useState(0);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -55,12 +57,14 @@ export default function EditInvoice() {
 
       setClients(clientList);
       if (settings?.currency) setCurrency(settings.currency);
+      if (settings?.defaultTaxRate != null) setTaxRate(Number(settings.defaultTaxRate) || 0);
 
       setClientId(invoice.clientId);
       setIssueDate(toDateInput(invoice.issueDate));
       setDueDate(toDateInput(invoice.dueDate));
       setStatus(invoice.status);
       setNotes(invoice.notes || '');
+      setDiscount(invoice.discount != null ? String(invoice.discount) : '');
       setItems(
         invoice.items.map((item) => ({
           description: item.description,
@@ -97,6 +101,15 @@ export default function EditInvoice() {
     [items]
   );
   const subtotal = useMemo(() => rowTotals.reduce((sum, n) => sum + n, 0), [rowTotals]);
+  // Same money math as Newinvoice: discount is clamped to the subtotal, then
+  // tax is applied to the discounted amount. Mirrors server/lib/money.js.
+  const discountValue = useMemo(
+    () => Math.min(Math.max(Number(discount) || 0, 0), subtotal),
+    [discount, subtotal]
+  );
+  const taxable = subtotal - discountValue;
+  const tax = taxable * ((Number(taxRate) || 0) / 100);
+  const total = taxable + tax;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -131,6 +144,7 @@ export default function EditInvoice() {
         dueDate,
         notes,
         status,
+        discount: discountValue,
         items: cleanedItems,
       });
       navigate(`/invoices/${id}`);
@@ -334,9 +348,37 @@ export default function EditInvoice() {
             </div>
 
             <div className="flex justify-end p-4 bg-[#f2f3ff]/60 border-t border-gray-50">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-[#464555]">Total</span>
-                <span className="text-xl font-bold text-[#3525cd]">{formatMoney(subtotal)}</span>
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-[#464555]">Discount</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={discount}
+                    onChange={(e) => setDiscount(e.target.value)}
+                    placeholder="0"
+                    className="w-32 h-9 rounded-lg bg-white border border-gray-100 px-3 text-sm text-right text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-[#464555]">Subtotal</span>
+                  <span className="text-sm font-semibold text-[#131b2e]">{formatMoney(subtotal)}</span>
+                </div>
+                {discountValue > 0 && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-[#464555]">Discount</span>
+                    <span className="text-sm text-[#131b2e]">− {formatMoney(discountValue)}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-[#464555]">Tax ({taxRate}%)</span>
+                  <span className="text-sm text-[#131b2e]">{formatMoney(tax)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-12 border-t border-gray-200/70 pt-2.5">
+                  <span className="text-sm font-semibold text-[#131b2e]">TOTAL</span>
+                  <span className="text-xl font-bold text-[#3525cd]">{formatMoney(total)}</span>
+                </div>
               </div>
             </div>
           </div>

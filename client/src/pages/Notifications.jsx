@@ -132,7 +132,7 @@ export default function Notifications() {
         {error && (
           <div className="mt-4 bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl flex items-center justify-between">
             {error}
-            <button onClick={load} className="font-semibold underline">Retry</button>
+            <button onClick={() => load(page)} className="font-semibold underline">Retry</button>
           </div>
         )}
 

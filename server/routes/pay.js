@@ -110,22 +110,38 @@ function remainingOf(invoice) {
 // Record a payment and flip the invoice — shared by every path (gateway,
 // simulated). Idempotent: if a payment with the same `reference` already
 // exists, this does nothing (gateway callback + redirect-resolve can both fire).
+//
+// Concurrency: the check-then-create is wrapped in a single interactive
+// transaction that locks the invoice row. If two request handlers fire at once
+// (a real race: the eSewa webhook and the redirect-resolve both land), the
+// second caller blocks on the row lock, then re-runs the reference check after
+// the first has committed and sees the already-recorded payment. The `paid`
+// sum is also recomputed under the lock so a stale snapshot can't double-count.
 async function recordPayment({ invoice, amount, method, reference, notes, attempt }) {
   const settings = invoice.workspace.settings;
   const taxRate = Number(settings?.defaultTaxRate || 0);
   const total = invoiceTotal(invoice, taxRate);
-  const paid = paidSum(invoice.payments);
-  const newPaid = Math.round((paid + amount) * 100) / 100;
-  const fullyPaid = newPaid >= total - MONEY_EPSILON;
-  const remainingAfter = Math.round(Math.max(0, total - newPaid) * 100) / 100;
 
-  const existing = await prisma.payment.findFirst({ where: { reference } });
-  if (existing) {
-    return { duplicate: true, total, paid: newPaid, remaining: remainingAfter, fullyPaid };
-  }
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Serialize concurrent recordings for this invoice. FOR UPDATE means the
+    // second transaction waits here until the first commits.
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${invoice.id} FOR UPDATE`;
 
-  await prisma.$transaction([
-    prisma.payment.create({
+    const existing = await tx.payment.findFirst({ where: { reference } });
+    if (existing) {
+      const paid = paidSum(await tx.payment.findMany({ where: { invoiceId: invoice.id }, select: { amount: true } }));
+      const remainingAfter = Math.round(Math.max(0, total - paid) * 100) / 100;
+      return { duplicate: true, paid, remaining: remainingAfter, fullyPaid: paid >= total - MONEY_EPSILON };
+    }
+
+    // Recompute under the lock — the caller's `invoice.payments` snapshot may
+    // predate a payment the current transaction is racing with.
+    const paid = paidSum(await tx.payment.findMany({ where: { invoiceId: invoice.id }, select: { amount: true } }));
+    const newPaid = Math.round((paid + amount) * 100) / 100;
+    const fullyPaid = newPaid >= total - MONEY_EPSILON;
+    const remainingAfter = Math.round(Math.max(0, total - newPaid) * 100) / 100;
+
+    await tx.payment.create({
       data: {
         workspaceId: invoice.workspaceId,
         invoiceId: invoice.id,
@@ -136,8 +152,8 @@ async function recordPayment({ invoice, amount, method, reference, notes, attemp
         reference,
         notes
       }
-    }),
-    prisma.invoice.update({
+    });
+    await tx.invoice.update({
       where: { id: invoice.id },
       data: {
         status: fullyPaid ? 'paid' : 'partially_paid',
@@ -151,8 +167,16 @@ async function recordPayment({ invoice, amount, method, reference, notes, attemp
           }
         }
       }
-    })
-  ]);
+    });
+
+    return { duplicate: false, paid: newPaid, remaining: remainingAfter, fullyPaid };
+  });
+
+  if (outcome.duplicate) {
+    return { duplicate: true, total, paid: outcome.paid, remaining: outcome.remaining, fullyPaid: outcome.fullyPaid };
+  }
+
+  const { remaining: remainingAfter, fullyPaid } = outcome;
 
   if (attempt) {
     await prisma.paymentAttempt.update({
@@ -198,7 +222,7 @@ async function recordPayment({ invoice, amount, method, reference, notes, attemp
     }
   }
 
-  return { duplicate: false, total, paid: newPaid, remaining: remainingAfter, fullyPaid };
+  return { duplicate: outcome.duplicate, total, paid: outcome.paid, remaining: outcome.remaining, fullyPaid: outcome.fullyPaid };
 }
 
 // GET /api/pay/:token — public invoice summary for the payment page.

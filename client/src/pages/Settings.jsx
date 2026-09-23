@@ -227,6 +227,11 @@ export default function Settings() {
           <div className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-10 text-center text-sm text-[#464555]">
             Loading settings...
           </div>
+        ) : !settings ? (
+          <div className="bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-10 text-center">
+            <p className="text-sm text-[#464555] mb-1">Settings couldn't be loaded.</p>
+            <p className="text-xs text-[#9694a8]">Use the Retry button above, or refresh the page.</p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 items-start">
             {/* Workspace */}
