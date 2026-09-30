@@ -232,6 +232,22 @@ router.get('/:token', async (req, res) => {
   if (!invoice || invoice.status === 'draft') {
     return res.status(404).json({ error: 'This payment link is not valid or the invoice no longer exists.' });
   }
+
+  // Read-receipt beacon: the client opening their pay link IS the "viewed" event.
+  // Only stamped once the invoice has actually been sent (sentAt) so a preview on
+  // a draft doesn't count. Best-effort — a tracking hiccup must never break checkout.
+  if (invoice.sentAt) {
+    const now = new Date();
+    prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        firstViewedAt: invoice.firstViewedAt || now,
+        lastViewedAt: now,
+        viewCount: { increment: 1 }
+      }
+    }).catch((err) => console.error('[pay] view tracking failed:', err.message));
+  }
+
   const data = toSummary(invoice);
   res.json({ ...data, alreadyPaid: data.status === 'paid' || data.remaining <= MONEY_EPSILON });
 });

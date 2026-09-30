@@ -23,6 +23,12 @@ const recurringSchema = z.object({
   discount: z.number().nonnegative('Discount cannot be negative').optional().default(0),
   notes: z.string().optional(),
   active: z.boolean().optional().default(true),
+  // Stop conditions — both optional, both honored by the scheduler.
+  endDate: z.string().datetime().or(z.string().min(1)).optional().nullable(),
+  maxOccurrences: z.number().int().positive('Max occurrences must be at least 1').optional().nullable(),
+  // When false, generated invoices start as drafts for review instead of being
+  // sent to the client.
+  autoSend: z.boolean().optional().default(true),
   items: z.array(itemSchema).min(1, 'At least one line item is required')
 });
 
@@ -67,6 +73,9 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
       discount: parsed.data.discount,
       notes: parsed.data.notes || null,
       active: parsed.data.active,
+      endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
+      maxOccurrences: parsed.data.maxOccurrences ?? null,
+      autoSend: parsed.data.autoSend,
       items: {
         create: parsed.data.items.map((it) => ({
           description: it.description,
@@ -118,6 +127,9 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
         discount: parsed.data.discount,
         notes: parsed.data.notes || null,
         active: parsed.data.active,
+        endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
+        maxOccurrences: parsed.data.maxOccurrences ?? null,
+        autoSend: parsed.data.autoSend,
         items: {
           create: parsed.data.items.map((it) => ({
             description: it.description,

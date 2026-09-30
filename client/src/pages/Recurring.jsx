@@ -52,6 +52,10 @@ function RecurringModal({ clients, initialValues, onClose, onSubmit, saving, err
       discount: Number(form.discount) || 0,
       notes: form.notes || undefined,
       active: form.active,
+      // Blank stop-condition fields mean "no limit" (sent as null, not "").
+      endDate: form.endDate ? new Date(form.endDate).toISOString() : null,
+      maxOccurrences: form.maxOccurrences ? Number(form.maxOccurrences) : null,
+      autoSend: form.autoSend,
       items: form.items
         .filter((it) => it.description.trim())
         .map((it) => ({
@@ -135,6 +139,48 @@ function RecurringModal({ clients, initialValues, onClose, onSubmit, saving, err
               />
             </div>
           </div>
+
+          {/* Stop conditions — leave both blank for an unlimited schedule. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">End date (optional)</label>
+              <input
+                type="date"
+                value={form.endDate || ''}
+                onChange={(e) => update('endDate', e.target.value)}
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+              <p className="text-[11px] text-[#9694a8]">Stops generating once the next run passes this date.</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Max invoices (optional)</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={form.maxOccurrences || ''}
+                onChange={(e) => update('maxOccurrences', e.target.value)}
+                placeholder="Runs forever"
+                className="w-full h-10 rounded-lg bg-[#f2f3ff] px-3 text-sm text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5]"
+              />
+              <p className="text-[11px] text-[#9694a8]">Deactivates the schedule after this many invoices.</p>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.autoSend !== false}
+              onChange={(e) => update('autoSend', e.target.checked)}
+              className="size-4 rounded accent-[#4f46e5]"
+            />
+            <span className="text-sm text-[#131b2e]">
+              Auto-send each generated invoice
+              <span className="block text-[11px] text-[#9694a8]">
+                Off = generated invoices start as drafts for you to review.
+              </span>
+            </span>
+          </label>
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium tracking-wide uppercase text-[#464555]">Notes (shown on invoice)</label>
@@ -273,7 +319,7 @@ export default function Recurring() {
     setEditing(null);
     setFormError('');
     setNotice('');
-    setFormValues({ clientId: '', description: '', frequency: 'monthly', startDate: today, discount: '0', notes: '', active: true, items: [{ ...EMPTY_ITEM }] });
+    setFormValues({ clientId: '', description: '', frequency: 'monthly', startDate: today, discount: '0', notes: '', active: true, endDate: '', maxOccurrences: '', autoSend: true, items: [{ ...EMPTY_ITEM }] });
     setModalOpen(true);
   }
 
@@ -289,6 +335,9 @@ export default function Recurring() {
       discount: String(s.discount ?? '0'),
       notes: s.notes || '',
       active: s.active,
+      endDate: toDateInput(s.endDate),
+      maxOccurrences: s.maxOccurrences ? String(s.maxOccurrences) : '',
+      autoSend: s.autoSend !== false,
       items: (s.items || []).map((it) => ({
         description: it.description,
         quantity: String(it.quantity),
@@ -441,7 +490,16 @@ export default function Recurring() {
                           {FREQ_LABELS[s.frequency]}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-[#131b2e] font-medium">{fmtDate(s.nextRunDate)}</td>
+                      <td className="px-4 py-4 text-[#131b2e] font-medium">
+                        {fmtDate(s.nextRunDate)}
+                        {(s.maxOccurrences != null || s.endDate) && (
+                          <span className="block text-[11px] font-normal text-[#9694a8]">
+                            Run {s.occurrences || 0}
+                            {s.maxOccurrences != null ? ` of ${s.maxOccurrences}` : ''}
+                            {s.endDate && s.maxOccurrences == null ? ` · ends ${fmtDate(s.endDate)}` : ''}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-4 text-[#464555]">{fmtDate(s.lastRunAt)}</td>
                       <td className="px-4 py-4 text-center">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${s.active ? 'bg-[#e5f7ee] text-[#0e7a41]' : 'bg-gray-100 text-[#464555]'}`}>
@@ -483,8 +541,10 @@ export default function Recurring() {
 
         <div className="mt-4 bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] p-4">
           <p className="text-xs text-[#464555]">
-            Scheduled invoices are created as <span className="font-semibold text-[#131b2e]">Pending</span> on their billing date and inherit this workspace's payment terms.
-            Each run advances the schedule automatically. Overdue schedules are picked up the next time the app checks — or click{' '}
+            Scheduled invoices are created on their billing date and inherit this workspace's payment terms.
+            {canWrite && ' With auto-send on they go out as '}<span className="font-semibold text-[#131b2e]">Pending</span>{canWrite && '; with it off they start as drafts for review.'}
+            Each run advances the schedule automatically, and a schedule stops once it hits its end date or invoice cap.
+            Overdue schedules are picked up the next time the app checks — or click{' '}
             <span className="font-semibold text-[#131b2e]">Generate Now</span> to bill immediately.
           </p>
         </div>

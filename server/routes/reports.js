@@ -8,7 +8,7 @@ router.use(requireAuth);
 // Shared money math — see lib/money.js. Discount is applied before tax so
 // reports and the dashboard agree:
 //   total = (subtotal − discount) × (1 + taxRate/100)
-const { invoiceTotal } = require('../lib/money');
+const { invoiceTotal, paidSum } = require('../lib/money');
 
 function startOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -40,15 +40,25 @@ router.get('/', async (req, res) => {
     prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } }),
     prisma.invoice.findMany({
       where: { workspaceId: req.workspaceId },
-      include: { items: true, client: { select: { id: true, name: true } } }
+      include: { items: true, payments: true, client: { select: { id: true, name: true } } }
     })
   ]);
 
   const taxRate = Number(settings.defaultTaxRate || 0);
 
+  // What's still owed on an invoice: total minus recorded payments (refunds are
+  // negative amounts, so they correctly add back to the balance).
+  function outstandingFor(inv) {
+    return Math.max(0, invoiceTotal(inv, taxRate) - paidSum(inv.payments));
+  }
+
   // --- Snapshot metrics: current outstanding receivables + aging (not period-bound) ---
-  const pendingInvoices = allInvoices.filter((inv) => inv.status === 'pending');
-  const agingReceivablesTotal = pendingInvoices.reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
+  // Aging covers every UNPAID invoice: 'pending' and 'partially_paid' alike. A
+  // part-paid invoice that passed its due date is still receivables, and leaving
+  // it out understates the aging picture and the open-invoice count. The bucket
+  // amount is what's still OWED (total − payments), not the full invoice total.
+  const openInvoices = allInvoices.filter((inv) => inv.status === 'pending' || inv.status === 'partially_paid');
+  const agingReceivablesTotal = openInvoices.reduce((s, inv) => s + outstandingFor(inv, taxRate), 0);
 
   const buckets = [
     { key: 'current', label: 'Current (0–30 Days)', min: 0, max: 30, total: 0, count: 0 },
@@ -56,11 +66,10 @@ router.get('/', async (req, res) => {
     { key: 'd61_90', label: '61–90 Days', min: 61, max: 90, total: 0, count: 0 },
     { key: 'd90plus', label: '90+ Days Overdue', min: 91, max: Infinity, total: 0, count: 0 }
   ];
-  for (const inv of pendingInvoices) {
+  for (const inv of openInvoices) {
     const daysOverdue = Math.max(0, Math.floor((now - new Date(inv.dueDate)) / (1000 * 60 * 60 * 24)));
     const bucket = buckets.find((b) => daysOverdue >= b.min && daysOverdue <= b.max);
-    const total = invoiceTotal(inv, taxRate);
-    bucket.total += total;
+    bucket.total += outstandingFor(inv, taxRate);
     bucket.count += 1;
   }
   const bucketsOut = buckets.map((b) => ({
@@ -156,7 +165,7 @@ router.get('/', async (req, res) => {
       revenueCollectedChangePct: pctChange(current.collectedTotal, previous.collectedTotal),
       paidInvoiceCount: current.paidCount,
       agingReceivablesTotal,
-      openInvoiceCount: pendingInvoices.length,
+      openInvoiceCount: openInvoices.length,
       avgDSO: current.avgDSO,
       collectionRate: current.collectionRate,
       collectionRateChangePct: pctChange(current.collectionRate, previous.collectionRate),
@@ -167,7 +176,7 @@ router.get('/', async (req, res) => {
     aging: {
       buckets: bucketsOut,
       totalOutstanding: agingReceivablesTotal,
-      openInvoiceCount: pendingInvoices.length
+      openInvoiceCount: openInvoices.length
     },
     topClients,
     totalClientsInPeriod: allPeriodClients.length

@@ -175,6 +175,12 @@ model Invoice {
   paidAt        DateTime?
   // When the invoice was first emailed to the client.
   sentAt        DateTime?
+  // View tracking: when the client first/last opened the invoice and how many
+  // times. Stamped by the public pay-link view so staff can see a sent invoice
+  // was actually opened (read receipt) before they chase it.
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  viewCount     Int           @default(0)
   // Unguessable token powering the public "Pay now" payment link so clients
   // can pay without an account. Backfilled for existing rows on migration.
   paymentToken  String?       @unique
@@ -306,6 +312,16 @@ model RecurringInvoice {
   nextRunDate  DateTime
   lastRunAt    DateTime?
   active       Boolean             @default(true)
+  // Stop conditions (both optional, both honored by the scheduler):
+  //   endDate        — stop generating once nextRunDate passes this date
+  //   maxOccurrences — stop after this many invoices have been generated
+  // occurrences    — how many invoices this schedule has generated so far
+  endDate        DateTime?
+  maxOccurrences Int?
+  occurrences    Int      @default(0)
+  // When true the scheduler auto-sends (moves to pending) each generated invoice;
+  // when false generated invoices start as drafts for review.
+  autoSend       Boolean  @default(true)
   discount     Decimal             @default(0)
   notes        String?
   createdAt    DateTime            @default(now())

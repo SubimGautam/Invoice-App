@@ -901,6 +901,23 @@ export default function InvoiceDetail() {
                     </p>
                   </div>
                 </div>
+                {invoice.sentAt && (
+                  <div className="flex items-center justify-between bg-[#f2f3ff] rounded-xl p-3">
+                    <div>
+                      <p className="text-xs text-[#464555]">Client View</p>
+                      <p className="text-sm font-semibold text-[#131b2e]">
+                        {invoice.viewCount > 0
+                          ? `Viewed ${fmtDate(invoice.lastViewedAt)}`
+                          : 'Not viewed yet'}
+                      </p>
+                    </div>
+                    {invoice.viewCount > 0 && (
+                      <span className="text-xs font-semibold text-[#006c49]">
+                        {invoice.viewCount} view{invoice.viewCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center justify-between bg-[#f2f3ff] rounded-xl p-3">
                   <div>
                     <p className="text-xs text-[#464555]">Line Items</p>

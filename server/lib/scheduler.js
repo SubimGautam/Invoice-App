@@ -52,6 +52,15 @@ async function generateDueRecurring({ workspaceId = null } = {}) {
       const dueDate = new Date(issueDate);
       dueDate.setDate(dueDate.getDate() + Number(settings.defaultPaymentTerms || 30));
 
+      // Past its end date (wall-clock): stop it outright rather than billing
+      // again. Compared against today, not nextRunDate — an overdue schedule
+      // carries a backdated run date, but if the end date has passed the user
+      // clearly meant for billing to stop.
+      if (schedule.endDate && new Date() > new Date(schedule.endDate)) {
+        await prisma.recurringInvoice.update({ where: { id: schedule.id }, data: { active: false } });
+        continue;
+      }
+
       // Retry handles the rare invoice-number collision under concurrency.
       let invoice = null;
       for (let attempt = 0; attempt < 3 && !invoice; attempt++) {
@@ -63,6 +72,15 @@ async function generateDueRecurring({ workspaceId = null } = {}) {
             });
             if (claimed.count === 0) return null; // someone else already ran this cycle
 
+            // Advance the run counters and apply stop conditions: this cycle
+            // counts toward the cap, and once the cap or end date is passed the
+            // schedule deactivates itself (it still generated this last invoice).
+            const occurrences = schedule.occurrences + 1;
+            const nextRun = advanceDate(schedule.nextRunDate, schedule.frequency);
+            const hitCap = schedule.maxOccurrences != null && occurrences >= schedule.maxOccurrences;
+            const hitEndDate = schedule.endDate != null && nextRun > new Date(schedule.endDate);
+            const exhausted = hitCap || hitEndDate;
+
             const invoiceNumber = await generateInvoiceNumber(schedule.workspaceId);
             const inv = await tx.invoice.create({
               data: {
@@ -70,7 +88,7 @@ async function generateDueRecurring({ workspaceId = null } = {}) {
                 userId: schedule.workspace.createdBy,
                 clientId: schedule.clientId,
                 invoiceNumber,
-                status: 'pending',
+                status: schedule.autoSend ? 'pending' : 'draft',
                 paymentToken: generatePaymentToken(),
                 issueDate,
                 dueDate,
@@ -90,7 +108,11 @@ async function generateDueRecurring({ workspaceId = null } = {}) {
             });
             await tx.recurringInvoice.update({
               where: { id: schedule.id },
-              data: { lastRunAt: new Date() }
+              data: {
+                lastRunAt: new Date(),
+                occurrences,
+                active: exhausted ? false : undefined
+              }
             });
             return inv;
           });
