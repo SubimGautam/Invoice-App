@@ -77,6 +77,10 @@ model User {
   // Uploaded profile picture (the "avatar"). Stored as a /uploads/... path
   // served from server.js; null means the app falls back to initials.
   avatarUrl    String?
+  // Password reset (forgot-password flow). We store a SHA-256 hash of the
+  // reset token (never the raw token) plus an expiry; both clear on use.
+  passwordResetTokenHash String?
+  passwordResetExpiresAt  DateTime?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   memberships  Membership[]

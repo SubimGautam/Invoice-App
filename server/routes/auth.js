@@ -1,8 +1,11 @@
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../prisma');
+const { sendEmail } = require('../lib/mailer');
+const { passwordResetEmail } = require('../lib/emailTemplates');
 
 const router = express.Router();
 
@@ -117,6 +120,86 @@ router.post('/login', async (req, res) => {
     user: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl },
     workspace: { id: membership.workspace.id, name: membership.workspace.name, role: membership.role }
   });
+});
+
+// POST /api/auth/forgot-password — starts the password reset flow. We ALWAYS
+// return the same message whether or not the account exists (no user
+// enumeration). When an account exists we mint a single-use reset token (stored
+// as a SHA-256 hash with a 1h expiry) and email a reset link through the
+// app's mailer — which simulates + logs when SMTP isn't configured.
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  if (typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  // Always pretend to work; only send when the account actually exists.
+  const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+
+  if (user) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetTokenHash: crypto.createHash('sha256').update(token).digest('hex'),
+        passwordResetExpiresAt: expiresAt
+      }
+    });
+
+    const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+    const { subject, html } = passwordResetEmail({ resetUrl });
+    const membership = await prisma.membership.findFirst({ where: { userId: user.id } });
+    if (membership) {
+      await sendEmail({
+        workspaceId: membership.workspaceId,
+        userId: user.id,
+        type: 'password_reset',
+        to: user.email,
+        subject,
+        html
+      }).catch((err) => console.error('[auth] reset email failed:', err.message));
+    } else {
+      console.log(`[auth] reset link for ${user.email} (no workspace to log to): ${resetUrl}`);
+    }
+  }
+
+  res.json({
+    ok: true,
+    message: 'If an account exists for that email, a password reset link is on its way.'
+  });
+});
+
+// POST /api/auth/reset-password — exchanges a reset token for a new password.
+// The token is single-use: it's cleared the moment it's consumed, and it
+// expires after 1 hour regardless.
+router.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (typeof token !== 'string' || !token) {
+    return res.status(400).json({ error: 'Reset token is missing or invalid' });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const user = await prisma.user.findFirst({
+    where: {
+      passwordResetTokenHash: hash,
+      passwordResetExpiresAt: { gt: new Date() }
+    }
+  });
+  if (!user) {
+    return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, passwordResetTokenHash: null, passwordResetExpiresAt: null }
+  });
+
+  res.json({ ok: true, message: 'Password updated. You can now sign in with your new password.' });
 });
 
 module.exports = router;

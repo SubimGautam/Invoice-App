@@ -198,6 +198,10 @@ export default function InvoiceDetail() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  // Resend confirmation: the audit's "the button is a status flip, not a
+  // delivery" — when an invoice has already been sent we arm a confirm step so
+  // a second email to the client is an explicit choice, not an accident.
+  const [confirmResend, setConfirmResend] = useState(false);
 
   useEffect(() => {
     load();
@@ -264,6 +268,7 @@ export default function InvoiceDetail() {
     setActionLoading(true);
     setActionError('');
     setSuccessMessage('');
+    const wasSent = !!(invoice.sentAt);
     try {
       if (invoice.status === 'draft') {
         await api.updateInvoiceStatus(id, 'pending');
@@ -272,14 +277,30 @@ export default function InvoiceDetail() {
       setSuccessMessage(
         result.simulated
           ? 'Email simulated — SMTP isn\'t configured. Delivery is logged in the server console + email history.'
-          : `Invoice sent to ${invoice.client.email}.`
+          : `${wasSent ? 'Invoice re-sent' : 'Invoice sent'} to ${invoice.client.email}.`
       );
+      setConfirmResend(false);
       await load(true);
     } catch (err) {
       setActionError(err.message);
     } finally {
       setActionLoading(false);
     }
+  }
+
+  // The resend flow is a two-step action: on an already-sent invoice the first
+  // click arms the confirm state ("Confirm re-send?"), the second click sends.
+  // Drafts and never-sent invoices go straight through.
+  function handleEmailButtonClick() {
+    setActionError('');
+    setSuccessMessage('');
+    const alreadySent = invoice.status !== 'draft' && !!invoice.sentAt;
+    if (alreadySent && !confirmResend) {
+      setConfirmResend(true);
+      return;
+    }
+    setConfirmResend(false);
+    handleSendInvoice();
   }
 
   async function handleSendReminder() {
@@ -602,12 +623,24 @@ export default function InvoiceDetail() {
                   </button>
                 ) : (
                   <button
-                    onClick={handleSendInvoice}
+                    onClick={handleEmailButtonClick}
                     disabled={actionLoading || !invoice.client.email}
                     title={invoice.client.email ? '' : `Add an email to ${invoice.client.name} to send invoices`}
-                    className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-sm text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                    className={`flex items-center gap-1.5 shadow-sm text-sm font-semibold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 ${
+                      confirmResend
+                        ? 'bg-[#ba1a1a] hover:bg-[#9c1515] text-white'
+                        : 'bg-[#4f46e5] hover:bg-[#4338ca] text-white'
+                    }`}
                   >
-                    {actionLoading ? 'Sending...' : 'Email Invoice'}
+                    {actionLoading ? 'Sending...' : confirmResend ? 'Confirm re-send?' : 'Email Invoice'}
+                  </button>
+                )}
+                {confirmResend && (
+                  <button
+                    onClick={() => setConfirmResend(false)}
+                    className="flex items-center gap-1.5 bg-[#f2f3ff] hover:bg-[#e2e7ff] text-sm font-semibold text-[#464555] px-4 py-2 rounded-xl transition-colors"
+                  >
+                    Cancel
                   </button>
                 )}
                 {invoice.status === 'pending' && (

@@ -45,6 +45,62 @@ export default function TopBar() {
   const [newWsName, setNewWsName] = useState('');
   const wsRef = useRef(null);
 
+  // Global search (the header search bar). Renders a live results dropdown so
+  // you can jump straight to an invoice, client, or product from anywhere.
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef(null);
+
+  // Debounced live search — fires 200ms after the user stops typing.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) return;
+    const t = setTimeout(() => {
+      api
+        .globalSearch(q)
+        .then((res) => {
+          setSearchResults(res);
+          setSearchOpen(true);
+        })
+        .catch(() => {
+          setSearchResults(null);
+          setSearchOpen(false);
+        });
+    }, 200);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Close the search dropdown on outside click.
+  useEffect(() => {
+    if (!searchOpen) return;
+    function onClick(e) {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [searchOpen]);
+
+  function goToSearchResult(invoiceId, clientId) {
+    setSearch('');
+    setSearchResults(null);
+    setSearchOpen(false);
+    navigate(invoiceId ? `/invoices/${invoiceId}` : `/clients/${clientId}`);
+  }
+
+  function handleSearchEnter() {
+    const r = searchResults;
+    if (!r) return;
+    if (r.invoices.length > 0) return goToSearchResult(r.invoices[0].id, null);
+    if (r.clients.length > 0) return goToSearchResult(null, r.clients[0].id);
+    if (r.products.length > 0) {
+      setSearch('');
+      setSearchResults(null);
+      setSearchOpen(false);
+      navigate('/products');
+    }
+  }
+
   const refreshCount = useCallback(() => {
     api
       .getNotificationCount()
@@ -247,13 +303,94 @@ export default function TopBar() {
 
   return (
     <header className="fixed top-0 left-0 md:left-64 right-0 h-16 backdrop-blur-md bg-[rgba(250,248,255,0.9)] border-b border-[rgba(199,196,216,0.3)] shadow-[0px_1px_8px_0px_rgba(15,23,42,0.04)] flex items-center justify-between px-4 md:px-6 z-30">
-      <div className="relative flex-1 max-w-md hidden sm:block">
+      <div className="relative flex-1 max-w-md hidden sm:block" ref={searchRef}>
         <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
         <input
           type="text"
+          value={search}
+          onChange={(e) => {
+            const value = e.target.value;
+            setSearch(value);
+            if (value.trim().length < 2) {
+              setSearchResults(null);
+              setSearchOpen(false);
+            } else {
+              setSearchOpen(true);
+            }
+          }}
+          onFocus={() => searchResults && setSearchOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSearchEnter();
+            }
+            if (e.key === 'Escape') setSearchOpen(false);
+          }}
           placeholder={`Search ${workspace?.name || 'billing'} invoices, clients, or amounts...`}
           className="w-full h-10 pl-9 pr-4 rounded-xl border border-[rgba(199,196,216,0.4)] bg-white text-sm text-[#131b2e] placeholder:text-[rgba(70,69,85,0.7)] focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
+
+        {searchOpen && searchResults && (
+          <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl border border-[rgba(199,196,216,0.5)] shadow-[0px_12px_32px_rgba(15,23,42,0.12)] overflow-hidden z-40" data-testid="global-search-panel">
+            {searchResults.invoices.length === 0 &&
+              searchResults.clients.length === 0 &&
+              searchResults.products.length === 0 && (
+                <p className="px-4 py-4 text-sm text-[#777587]">No matches for “{search}”.</p>
+              )}
+
+            {searchResults.invoices.length > 0 && (
+              <div className="pt-1">
+                <p className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-wide uppercase text-[#777587]">Invoices</p>
+                {searchResults.invoices.map((inv) => (
+                  <button
+                    key={inv.id}
+                    onClick={() => goToSearchResult(inv.id, null)}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-left"
+                  >
+                    <span className="text-sm font-medium text-[#131b2e]">{inv.invoiceNumber}</span>
+                    <span className="text-xs text-[#777587] truncate">{inv.clientName}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {searchResults.clients.length > 0 && (
+              <div className="pt-1">
+                <p className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-wide uppercase text-[#777587]">Clients</p>
+                {searchResults.clients.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => goToSearchResult(null, c.id)}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-left"
+                  >
+                    <span className="text-sm font-medium text-[#131b2e]">{c.name}</span>
+                    <span className="text-xs text-[#777587] truncate">{c.invoiceCount} invoice{c.invoiceCount === 1 ? '' : 's'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {searchResults.products.length > 0 && (
+              <div className="pt-1 pb-1.5">
+                <p className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-wide uppercase text-[#777587]">Products</p>
+                {searchResults.products.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setSearch('');
+                      setSearchResults(null);
+                      setSearchOpen(false);
+                      navigate('/products');
+                    }}
+                    className="w-full text-left px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-sm font-medium text-[#131b2e]"
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 ml-auto">

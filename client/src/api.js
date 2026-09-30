@@ -62,6 +62,14 @@ export const api = {
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
 
+  forgotPassword: (email) =>
+    request('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (token, password) =>
+    request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }),
+
+  // --- Global search (topbar) ---
+  globalSearch: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
+
   // --- Clients ---
   getClients: () => request('/api/clients'),
   getClient: (id) => request(`/api/clients/${id}`),

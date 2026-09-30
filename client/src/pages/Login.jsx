@@ -178,7 +178,14 @@ export default function Login() {
                 <label htmlFor="password" className="text-xs font-semibold text-[#131b2e]">
                   Password
                 </label>
-                <a href="#" className="text-xs text-[#3525cd] hover:underline">
+                <a
+                  href="/forgot-password"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/forgot-password');
+                  }}
+                  className="text-xs text-[#3525cd] hover:underline"
+                >
                   Forgot password?
                 </a>
               </div>

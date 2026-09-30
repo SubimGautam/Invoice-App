@@ -133,4 +133,25 @@ function paymentReceiptEmail({ businessName, clientName, invoiceNumber, amountPa
   return { subject, html };
 }
 
-module.exports = { invoiceEmail, reminderEmail, paymentReceiptEmail, invoiceUrl, amount };
+// Password reset email — link is single-use and expires in 1 hour.
+function passwordResetEmail({ resetUrl }) {
+  const subject = 'Reset your Billflow password';
+  const html = shell({
+    businessName: 'Billflow',
+    preheader: 'Reset your password (link expires in 1 hour).',
+    body: `
+      <p style="margin:0 0 8px;color:#131b2e;font-size:15px;font-weight:600;">Hi there,</p>
+      <p style="margin:0 0 20px;color:#464555;font-size:14px;line-height:1.5;">
+        We received a request to reset your Billflow password. Use the button below to
+        choose a new one — the link is single-use and expires in 1 hour.
+      </p>
+      <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">Reset Password</a>
+      <p style="margin:20px 0 0;color:#777587;font-size:13px;line-height:1.5;">
+        If you didn't request this, you can safely ignore this email — your password won't change.
+      </p>
+    `
+  });
+  return { subject, html };
+}
+
+module.exports = { invoiceEmail, reminderEmail, paymentReceiptEmail, passwordResetEmail, invoiceUrl, amount };

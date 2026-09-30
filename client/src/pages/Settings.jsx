@@ -447,20 +447,20 @@ export default function Settings() {
               <p className="text-xs font-semibold tracking-wide uppercase text-[#464555] mb-1">Notifications</p>
               <div className="divide-y divide-gray-100">
                 <Toggle
-                  label="Email notifications"
-                  description="General account and activity emails."
+                  label="Activity notifications"
+                  description="Invoice sent/created and general workspace activity in your notification feed."
                   checked={settings.emailNotifications}
                   onChange={(v) => updateSettingsField('emailNotifications', v)}
                 />
                 <Toggle
                   label="Payment notifications"
-                  description="Get notified when an invoice is marked as paid."
+                  description="Alerts in your notification feed when an invoice is marked as paid."
                   checked={settings.paymentNotifications}
                   onChange={(v) => updateSettingsField('paymentNotifications', v)}
                 />
                 <Toggle
                   label="Reminder notifications"
-                  description="Heads-up when invoices are approaching or past due."
+                  description="Heads-up in your notification feed when invoices are approaching or past due."
                   checked={settings.reminderNotifications}
                   onChange={(v) => updateSettingsField('reminderNotifications', v)}
                 />
