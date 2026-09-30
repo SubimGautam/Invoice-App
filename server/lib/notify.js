@@ -12,7 +12,14 @@ const TYPE_TO_SETTING = {
   reminders_batch: 'reminderNotifications',
   overdue: 'reminderNotifications',
   invoice_sent: 'emailNotifications',
-  invoice_created: 'emailNotifications'
+  invoice_created: 'emailNotifications',
+  // Estimates are quotes, not billing events: creating/sending/answering one
+  // is general workspace activity, gated by the activity toggle.
+  estimate_created: 'emailNotifications',
+  estimate_sent: 'emailNotifications',
+  estimate_accepted: 'emailNotifications',
+  estimate_declined: 'emailNotifications',
+  estimate_converted: 'emailNotifications'
 };
 
 // True when the workspace's notification preferences allow this event through.
@@ -31,7 +38,8 @@ async function notificationsEnabled(workspaceId, type) {
 // people aren't pinged about their own clicks. Used by event hooks like
 // "payment recorded" / "invoice sent". Honors the workspace's notification
 // preference toggles — turning one off stops that category of event entirely.
-async function notifyWorkspace({ workspaceId, excludeUserId = null, type, title, message, invoiceId = null }) {
+// Set exactly one of invoiceId / estimateId so the feed row links somewhere.
+async function notifyWorkspace({ workspaceId, excludeUserId = null, type, title, message, invoiceId = null, estimateId = null }) {
   if (!(await notificationsEnabled(workspaceId, type))) return;
   const members = await prisma.membership.findMany({ where: { workspaceId }, select: { userId: true } });
   let recipients;
@@ -42,15 +50,15 @@ async function notifyWorkspace({ workspaceId, excludeUserId = null, type, title,
   }
   if (recipients.length === 0) return;
   await prisma.notification.createMany({
-    data: recipients.map((userId) => ({ userId, workspaceId, type, title, message, invoiceId }))
+    data: recipients.map((userId) => ({ userId, workspaceId, type, title, message, invoiceId, estimateId }))
   });
 }
 
 // Create a notification for one specific user (e.g. reminder fires addressed
 // to the member who runs the workspace).
-async function notifyUser({ userId, workspaceId, type, title, message, invoiceId = null }) {
+async function notifyUser({ userId, workspaceId, type, title, message, invoiceId = null, estimateId = null }) {
   if (!(await notificationsEnabled(workspaceId, type))) return;
-  await prisma.notification.create({ data: { userId, workspaceId, type, title, message, invoiceId } });
+  await prisma.notification.create({ data: { userId, workspaceId, type, title, message, invoiceId, estimateId } });
 }
 
 module.exports = { notifyWorkspace, notifyUser };

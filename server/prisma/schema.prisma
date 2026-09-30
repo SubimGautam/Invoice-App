@@ -30,6 +30,17 @@ enum RecurringFrequency {
   yearly
 }
 
+// A quote. "sent" = the client has it, "accepted"/"declined" = their answer,
+// "converted" = it became an invoice (the estimate is then read-only and the
+// real document is the invoice).
+enum EstimateStatus {
+  draft
+  sent
+  accepted
+  declined
+  converted
+}
+
 // A workspace is the tenant for ALL business data (clients, invoices,
 // products, settings, business profile, recurring schedules). A user belongs
 // to one or more workspaces via Membership; every token names the active
@@ -48,6 +59,7 @@ model Workspace {
   businessProfile BusinessProfile?
   clients      Client[]
   invoices     Invoice[]
+  estimates    Estimate[]
   products     Product[]
   recurringInvoices RecurringInvoice[]
   notifications Notification[]
@@ -87,6 +99,7 @@ model User {
   // Attribution columns: the workspace owns data, but we record who created it.
   clients      Client[]
   invoices     Invoice[]
+  estimates    Estimate[]
   products     Product[]
   notifications Notification[]
   emailLogs    EmailLog[]
@@ -102,6 +115,10 @@ model WorkspaceSettings {
   defaultPaymentTerms   Int      @default(30)
   invoicePrefix         String   @default("INV-")
   nextInvoiceNumber     Int      @default(1)
+  // Estimates get their own sequence + prefix, separate from invoices, so
+  // quoting a job never burns an invoice number.
+  estimatePrefix        String   @default("EST-")
+  nextEstimateNumber    Int      @default(1)
   defaultTaxRate        Decimal  @default(0)
   emailNotifications    Boolean  @default(true)
   paymentNotifications  Boolean  @default(true)
@@ -155,6 +172,7 @@ model Client {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   invoices    Invoice[]
+  estimates   Estimate[]
   recurringInvoices RecurringInvoice[]
 
   @@index([workspaceId])
@@ -188,6 +206,11 @@ model Invoice {
   // Set when this invoice was materialized by a recurring schedule.
   recurringId   String?
   recurring     RecurringInvoice? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+  // Set when this invoice was created by converting an accepted estimate. Unique
+  // so one estimate can never turn into two invoices. The estimate is then
+  // locked (status 'converted') and the invoice is the document of record.
+  estimateId    String?       @unique
+  sourceEstimate Estimate?     @relation("EstimateConversion", fields: [estimateId], references: [id], onDelete: SetNull)
   // Fixed-amount discount (in the business's currency), applied before tax:
   // total = (subtotal - discount) + tax on the discounted amount.
   discount      Decimal       @default(0)
@@ -255,6 +278,61 @@ model InvoiceItem {
   @@index([productId])
 }
 
+// A quote/proposal: priced work sent to a client BEFORE any invoice exists.
+// Structurally an invoice minus the money-received side — same line items, same
+// discount-before-tax math (lib/money.js is duck-typed on `items` + `discount`,
+// so an estimate totals with the exact same code). Payments/PaymentAttempt hard-
+// reference Invoice and stay invoice-only.
+model Estimate {
+  id             String         @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  estimateNumber String
+  status         EstimateStatus @default(draft)
+  issueDate      DateTime
+  // Quotes expire: "valid until" is the date the pricing holds.
+  validUntil     DateTime
+  sentAt         DateTime?
+  acceptedAt     DateTime?
+  declinedAt     DateTime?
+  declinedReason String?
+  // Same shape as invoice view tracking — the public quote link is the "opened"
+  // event, which is what tells staff a quote was actually read.
+  viewToken      String?        @unique
+  firstViewedAt  DateTime?
+  lastViewedAt   DateTime?
+  viewCount      Int            @default(0)
+  discount       Decimal        @default(0)
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  items          EstimateItem[]
+  auditLogs      AuditLog[]
+  emailLogs      EmailLog[]
+  // The invoice this estimate became (set on the INVOICE side as estimateId).
+  invoice        Invoice?       @relation("EstimateConversion")
+
+  @@index([workspaceId, status])
+  @@unique([workspaceId, estimateNumber])
+}
+
+model EstimateItem {
+  id          String   @id @default(uuid())
+  estimateId  String
+  estimate    Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  description String
+  quantity    Decimal
+  unitPrice   Decimal
+
+  @@index([productId])
+}
+
 // A business's reusable products & services. One workspace's catalog is
 // isolated from every other workspace's. `stock` is tracked but not
 // auto-decremented yet — services businesses can just ignore it and leave it at 0.
@@ -280,21 +358,27 @@ model Product {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   items       InvoiceItem[]
+  estimateItems EstimateItem[]
   recurringItems RecurringItem[]
 
   @@index([workspaceId])
 }
 
-// Real, append-only history of what actually happened to an invoice.
+// Real, append-only history of what actually happened to a document. Exactly one
+// of invoiceId / estimateId is set — an audit entry belongs to either an invoice
+// or an estimate, never both.
 model AuditLog {
-  id        String   @id @default(uuid())
-  invoiceId String
-  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  type      String
-  message   String
-  createdAt DateTime @default(now())
+  id         String    @id @default(uuid())
+  invoiceId  String?
+  invoice    Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  estimateId String?
+  estimate   Estimate? @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  type       String
+  message    String
+  createdAt  DateTime  @default(now())
 
   @@index([invoiceId])
+  @@index([estimateId])
 }
 
 // A recurring billing schedule. When the in-process scheduler finds an active
@@ -355,7 +439,11 @@ model Notification {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // What the notification is about. invoiceId is for billing events; estimateId
+  // is set for quote events so "EST-0001 accepted" links to the quote rather
+  // than being a dead-end row in the feed.
   invoiceId   String?
+  estimateId  String?
   type        String
   title       String
   message     String
@@ -363,6 +451,7 @@ model Notification {
   createdAt   DateTime  @default(now())
 
   @@index([userId, readAt])
+  @@index([estimateId])
 }
 
 // Persistent record of every email we attempted to send, so the UI can show
@@ -376,7 +465,9 @@ model EmailLog {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   invoiceId   String?
   invoice     Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  type        String // invoice | reminder | batch
+  estimateId  String?
+  estimate    Estimate? @relation(fields: [estimateId], references: [id], onDelete: SetNull)
+  type        String // invoice | reminder | batch | estimate
   to          String
   subject     String
   ok          Boolean
@@ -385,6 +476,7 @@ model EmailLog {
   sentAt      DateTime  @default(now())
 
   @@index([workspaceId, invoiceId])
+  @@index([estimateId])
 }
 
 // One checkout started against an invoice through a payment gateway (eSewa,

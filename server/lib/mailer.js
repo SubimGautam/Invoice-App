@@ -23,8 +23,9 @@ function getTransporter() {
 }
 
 // Send ONE email and persist the attempt in EmailLog so the UI can show
-// delivery history. Returns { ok, simulated, error, log }.
-async function sendEmail({ workspaceId, userId, invoiceId = null, type, to, subject, html }) {
+// delivery history. Set exactly one of invoiceId / estimateId to file the log
+// against the right document. Returns { ok, simulated, error, log }.
+async function sendEmail({ workspaceId, userId, invoiceId = null, estimateId = null, type, to, subject, html }) {
   const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@billflow.local';
 
   let ok = false;
@@ -46,7 +47,7 @@ async function sendEmail({ workspaceId, userId, invoiceId = null, type, to, subj
   }
 
   const log = await prisma.emailLog.create({
-    data: { workspaceId, userId, invoiceId, type, to, subject, ok, simulated, error }
+    data: { workspaceId, userId, invoiceId, estimateId, type, to, subject, ok, simulated, error }
   });
 
   return { ok, simulated, error, log };

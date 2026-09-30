@@ -98,6 +98,32 @@ export const api = {
   deleteInvoice: (id) =>
     request(`/api/invoices/${id}`, { method: 'DELETE' }),
 
+  // --- Estimates (quotes) ---
+  getEstimates: (page = 1, limit = 20, status, q) => {
+    const params = new URLSearchParams({ page, limit });
+    if (status) params.set('status', status);
+    if (q) params.set('q', q);
+    return request(`/api/estimates?${params}`);
+  },
+  getEstimate: (id) => request(`/api/estimates/${id}`),
+  createEstimate: (estimate) =>
+    request('/api/estimates', { method: 'POST', body: JSON.stringify(estimate) }),
+  updateEstimate: (id, estimate) =>
+    request(`/api/estimates/${id}`, { method: 'PUT', body: JSON.stringify(estimate) }),
+  updateEstimateStatus: (id, status, reason) =>
+    request(`/api/estimates/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
+  convertEstimate: (id) =>
+    request(`/api/estimates/${id}/convert`, { method: 'POST' }),
+  deleteEstimate: (id) => request(`/api/estimates/${id}`, { method: 'DELETE' }),
+  sendEstimateEmail: (id) =>
+    request(`/api/emails/estimate/${id}/send`, { method: 'POST' }),
+  getEstimateLink: (id) => request(`/api/estimates/${id}/link`),
+
+  // --- Public quote link (no auth) — how the client reviews and responds ---
+  getPublicEstimate: (token) => request(`/api/estimate/${token}`),
+  respondToEstimate: (token, payload) =>
+    request(`/api/estimate/${token}/respond`, { method: 'POST', body: JSON.stringify(payload) }),
+
   // --- Payments ---
   recordPayment: (payload) =>
     request('/api/payments', { method: 'POST', body: JSON.stringify(payload) }),

@@ -11,10 +11,13 @@ import imgRecurringIcon from '../assets/Recurring.png';
 import imgReportsIcon from '../assets/Reports.png';
 import imgSettingsIcon from '../assets/Setting.png';
 import imgMembersIcon from '../assets/Team and member.png';
-import { PlusIcon, ChevronDownIcon } from './Icons';
+import { PlusIcon, ChevronDownIcon, DocumentIcon } from './Icons';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: imgDashboardIcon },
+  // Estimates has no PNG export in assets/, so it uses the inline DocumentIcon
+  // (currentColor, so it matches the active/inactive text color exactly).
+  { to: '/estimates', label: 'Estimates', icon: DocumentIcon },
   { to: '/products', label: 'Products', icon: imgProductsIcon },
   { to: '/clients', label: 'Clients', icon: imgClientsIcon },
   { to: '/payments', label: 'Payments', icon: imgPaymentsIcon },
@@ -27,6 +30,14 @@ const navItems = [
 const manageItems = [
   { to: '/members', label: 'Team & Members', icon: imgMembersIcon },
 ];
+
+// A nav icon is either an imported image file (most of the legacy set) or an
+// inline SVG component (newer additions). Both get the same box and the same
+// opacity so an SVG entry doesn't read heavier than its PNG neighbours.
+function NavIcon({ icon: Icon }) {
+  if (typeof Icon === 'function') return <Icon className="w-5 h-5 shrink-0 opacity-80" />;
+  return <img src={Icon} alt="" className="w-5 h-5 opacity-80" />;
+}
 
 export default function Sidebar() {
   const { user, workspace, canManage } = useAuth();
@@ -66,7 +77,7 @@ export default function Sidebar() {
                 }`
               }
             >
-              <img src={item.icon} alt="" className="w-5 h-5 opacity-80" />
+              <NavIcon icon={item.icon} />
               {item.label}
             </NavLink>
           ))}
@@ -88,7 +99,7 @@ export default function Sidebar() {
                     }`
                   }
                 >
-                  <img src={item.icon} alt="" className="w-5 h-5 opacity-80" />
+                  <NavIcon icon={item.icon} />
                   {item.label}
                 </NavLink>
               ))}

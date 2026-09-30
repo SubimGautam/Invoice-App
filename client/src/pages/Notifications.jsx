@@ -16,6 +16,13 @@ const TYPE_META = {
   reminder: { label: 'Reminder', classes: 'bg-[#fdf0d8] text-[#9a6b00]' },
   reminder_sent: { label: 'Reminder sent', classes: 'bg-[#fdf0d8] text-[#9a6b00]' },
   overdue: { label: 'Overdue', classes: 'bg-[#fdecec] text-[#ba1a1a]' },
+  // Estimates are quotes, so they get their own vocabulary instead of being
+  // filed under the invoice labels above.
+  estimate_created: { label: 'Estimate created', classes: 'bg-[#e2e7ff] text-[#3525cd]' },
+  estimate_sent: { label: 'Estimate sent', classes: 'bg-[#e2e7ff] text-[#3525cd]' },
+  estimate_accepted: { label: 'Estimate accepted', classes: 'bg-[#e5f7ee] text-[#0e7a41]' },
+  estimate_declined: { label: 'Estimate declined', classes: 'bg-[#fdecec] text-[#ba1a1a]' },
+  estimate_converted: { label: 'Estimate converted', classes: 'bg-[#e2e7ff] text-[#3525cd]' },
 };
 
 function typeMeta(type) {
@@ -87,6 +94,7 @@ export default function Notifications() {
     // The notification itself may still be on this page; flip it visually.
     setItems((list) => list.map((x) => (x.id === n.id ? { ...x, readAt: x.readAt || new Date().toISOString() } : x)));
     if (n.invoiceId) navigate(`/invoices/${n.invoiceId}`);
+    else if (n.estimateId) navigate(`/estimates/${n.estimateId}`);
   }
 
   async function markAllRead() {
@@ -198,6 +206,9 @@ export default function Notifications() {
                     </div>
                     {n.invoiceId && (
                       <span className="text-xs font-semibold text-[#4f46e5] shrink-0 mt-2">View invoice →</span>
+                    )}
+                    {!n.invoiceId && n.estimateId && (
+                      <span className="text-xs font-semibold text-[#4f46e5] shrink-0 mt-2">View estimate →</span>
                     )}
                   </button>
                 );

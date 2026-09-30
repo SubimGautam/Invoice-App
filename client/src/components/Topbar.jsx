@@ -81,24 +81,22 @@ export default function TopBar() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [searchOpen]);
 
-  function goToSearchResult(invoiceId, clientId) {
+  function goToSearchResult(path) {
     setSearch('');
     setSearchResults(null);
     setSearchOpen(false);
-    navigate(invoiceId ? `/invoices/${invoiceId}` : `/clients/${clientId}`);
+    navigate(path);
   }
 
   function handleSearchEnter() {
     const r = searchResults;
     if (!r) return;
-    if (r.invoices.length > 0) return goToSearchResult(r.invoices[0].id, null);
-    if (r.clients.length > 0) return goToSearchResult(null, r.clients[0].id);
-    if (r.products.length > 0) {
-      setSearch('');
-      setSearchResults(null);
-      setSearchOpen(false);
-      navigate('/products');
-    }
+    // Ordered by how specific the match is: a numbered document beats a client
+    // row beats a catalog product.
+    if (r.invoices.length > 0) return goToSearchResult(`/invoices/${r.invoices[0].id}`);
+    if (r.estimates.length > 0) return goToSearchResult(`/estimates/${r.estimates[0].id}`);
+    if (r.clients.length > 0) return goToSearchResult(`/clients/${r.clients[0].id}`);
+    if (r.products.length > 0) return goToSearchResult('/products');
   }
 
   const refreshCount = useCallback(() => {
@@ -326,13 +324,14 @@ export default function TopBar() {
             }
             if (e.key === 'Escape') setSearchOpen(false);
           }}
-          placeholder={`Search ${workspace?.name || 'billing'} invoices, clients, or amounts...`}
+          placeholder={`Search ${workspace?.name || 'billing'} invoices, estimates, clients, or amounts...`}
           className="w-full h-10 pl-9 pr-4 rounded-xl border border-[rgba(199,196,216,0.4)] bg-white text-sm text-[#131b2e] placeholder:text-[rgba(70,69,85,0.7)] focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
 
         {searchOpen && searchResults && (
           <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl border border-[rgba(199,196,216,0.5)] shadow-[0px_12px_32px_rgba(15,23,42,0.12)] overflow-hidden z-40" data-testid="global-search-panel">
             {searchResults.invoices.length === 0 &&
+              searchResults.estimates.length === 0 &&
               searchResults.clients.length === 0 &&
               searchResults.products.length === 0 && (
                 <p className="px-4 py-4 text-sm text-[#777587]">No matches for “{search}”.</p>
@@ -344,11 +343,27 @@ export default function TopBar() {
                 {searchResults.invoices.map((inv) => (
                   <button
                     key={inv.id}
-                    onClick={() => goToSearchResult(inv.id, null)}
+                    onClick={() => goToSearchResult(`/invoices/${inv.id}`)}
                     className="w-full flex items-center justify-between gap-2 px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-left"
                   >
                     <span className="text-sm font-medium text-[#131b2e]">{inv.invoiceNumber}</span>
                     <span className="text-xs text-[#777587] truncate">{inv.clientName}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {searchResults.estimates.length > 0 && (
+              <div className="pt-1">
+                <p className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-wide uppercase text-[#777587]">Estimates</p>
+                {searchResults.estimates.map((est) => (
+                  <button
+                    key={est.id}
+                    onClick={() => goToSearchResult(`/estimates/${est.id}`)}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-left"
+                  >
+                    <span className="text-sm font-medium text-[#131b2e]">{est.estimateNumber}</span>
+                    <span className="text-xs text-[#777587] truncate">{est.clientName}</span>
                   </button>
                 ))}
               </div>
@@ -360,7 +375,7 @@ export default function TopBar() {
                 {searchResults.clients.map((c) => (
                   <button
                     key={c.id}
-                    onClick={() => goToSearchResult(null, c.id)}
+                    onClick={() => goToSearchResult(`/clients/${c.id}`)}
                     className="w-full flex items-center justify-between gap-2 px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-left"
                   >
                     <span className="text-sm font-medium text-[#131b2e]">{c.name}</span>
@@ -376,12 +391,7 @@ export default function TopBar() {
                 {searchResults.products.map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => {
-                      setSearch('');
-                      setSearchResults(null);
-                      setSearchOpen(false);
-                      navigate('/products');
-                    }}
+                    onClick={() => goToSearchResult('/products')}
                     className="w-full text-left px-4 py-2 hover:bg-[#f8f7ff] transition-colors text-sm font-medium text-[#131b2e]"
                   >
                     {p.name}

@@ -153,6 +153,7 @@ export default function Settings() {
       const saved = await api.updateSettings({
         currency: settings.currency,
         invoicePrefix: settings.invoicePrefix,
+        estimatePrefix: settings.estimatePrefix,
         defaultPaymentTerms: Number(settings.defaultPaymentTerms),
         defaultTaxRate: Number(settings.defaultTaxRate),
         emailNotifications: settings.emailNotifications,
@@ -426,6 +427,11 @@ export default function Settings() {
                   label="Invoice Number Prefix"
                   value={settings.invoicePrefix}
                   onChange={(e) => updateSettingsField('invoicePrefix', e.target.value)}
+                />
+                <Field
+                  label="Estimate Number Prefix"
+                  value={settings.estimatePrefix}
+                  onChange={(e) => updateSettingsField('estimatePrefix', e.target.value)}
                 />
                 <Field
                   label="Default Payment Terms (days)"

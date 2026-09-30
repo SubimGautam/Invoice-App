@@ -75,6 +75,7 @@ const settingsSchema = z.object({
   currency: z.string().min(1).optional(),
   defaultPaymentTerms: z.number().int().nonnegative().optional(),
   invoicePrefix: z.string().min(1).optional(),
+  estimatePrefix: z.string().min(1).optional(),
   defaultTaxRate: z.number().nonnegative().optional(),
   emailNotifications: z.boolean().optional(),
   paymentNotifications: z.boolean().optional(),

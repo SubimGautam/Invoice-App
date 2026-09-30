@@ -3,7 +3,8 @@ const prisma = require('../prisma');
 const requireAuth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
 const { sendEmail } = require('../lib/mailer');
-const { invoiceEmail, reminderEmail } = require('../lib/emailTemplates');
+const { invoiceEmail, reminderEmail, estimateEmail } = require('../lib/emailTemplates');
+const { generatePaymentToken } = require('../lib/paymenttoken');
 const { invoiceTotal, paidSum } = require('../lib/money');
 const { notifyWorkspace } = require('../lib/notify');
 
@@ -39,11 +40,12 @@ async function loadContext(req, res) {
   };
 }
 
-// GET /api/emails/log?invoiceId= — delivery history for the workspace (filtered
-// to one invoice when requested).
+// GET /api/emails/log?invoiceId=&estimateId= — delivery history for the
+// workspace (filtered to one document when requested).
 router.get('/log', async (req, res) => {
   const where = { workspaceId: req.workspaceId };
   if (req.query.invoiceId) where.invoiceId = req.query.invoiceId;
+  if (req.query.estimateId) where.estimateId = req.query.estimateId;
   const logs = await prisma.emailLog.findMany({
     where,
     orderBy: { sentAt: 'desc' },
@@ -219,6 +221,90 @@ router.post('/reminders/batch', requireRole('owner', 'admin', 'staff'), async (r
   }
 
   res.json({ sent, skipped: invoices.length - sent, simulated: anySimulated });
+});
+
+// POST /api/emails/estimate/:id/send — email the quote to the client.
+// Moves a draft to 'sent' (this is the moment the client is actually given the
+// quote) and stamps sentAt. Sending an already-sent/answered quote just
+// re-delivers it, which is a normal "did you get my last one?" action.
+router.post('/estimate/:id/send', requireRole('owner', 'admin', 'staff'), async (req, res) => {
+  const estimate = await prisma.estimate.findUnique({
+    where: { id: req.params.id },
+    include: { client: true, items: true }
+  });
+  if (!estimate || estimate.workspaceId !== req.workspaceId) {
+    return res.status(404).json({ error: 'Estimate not found' });
+  }
+  if (estimate.status === 'converted') {
+    return res.status(400).json({ error: 'This estimate was converted to an invoice and cannot be re-sent' });
+  }
+  if (!estimate.client.email) {
+    return res.status(400).json({ error: `Client ${estimate.client.name} has no email address — add one to send estimates` });
+  }
+
+  const [settings, profile] = await Promise.all([
+    prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } }),
+    prisma.businessProfile.findUnique({ where: { workspaceId: req.workspaceId } })
+  ]);
+
+  // Ensure a link exists even for estimates created before the token column.
+  let viewToken = estimate.viewToken;
+  if (!viewToken) {
+    viewToken = generatePaymentToken();
+    await prisma.estimate.update({ where: { id: estimate.id }, data: { viewToken } });
+  }
+
+  const { subject, html } = estimateEmail({
+    businessName: profile?.businessName || 'Billflow',
+    clientName: estimate.client.name,
+    estimateNumber: estimate.estimateNumber,
+    total: invoiceTotal(estimate, Number(settings.defaultTaxRate || 0)),
+    validUntil: estimate.validUntil,
+    estimateId: estimate.id,
+    viewToken,
+    note: estimate.notes || '',
+    currency: settings.currency
+  });
+
+  const result = await sendEmail({
+    workspaceId: req.workspaceId,
+    userId: req.userId,
+    estimateId: estimate.id,
+    type: 'estimate',
+    to: estimate.client.email,
+    subject,
+    html
+  });
+
+  await prisma.estimate.update({
+    where: { id: estimate.id },
+    data: {
+      // A draft becomes 'sent' on first delivery. An answered quote keeps its
+      // answer — re-sending must not wipe the client's response.
+      status: estimate.status === 'draft' ? 'sent' : estimate.status,
+      sentAt: estimate.sentAt || new Date(),
+      auditLogs: { create: { type: 'sent', message: `Estimate emailed to ${estimate.client.email}${result.simulated ? ' (simulated — SMTP not configured)' : ''}` } }
+    }
+  });
+
+  await notifyWorkspace({
+    workspaceId: req.workspaceId,
+    excludeUserId: req.userId,
+    // Its own type, not 'invoice_sent' — reusing that would file quotes under
+    // the invoice feed and misrepresent them as billing events.
+    type: 'estimate_sent',
+    title: 'Estimate sent',
+    message: `${estimate.estimateNumber} emailed to ${estimate.client.name}`,
+    estimateId: estimate.id
+  });
+
+  res.json({
+    ok: result.ok,
+    simulated: result.simulated,
+    message: result.simulated
+      ? 'Email simulated (SMTP not configured). See server console + email log.'
+      : `${estimate.estimateNumber} sent to ${estimate.client.email}`
+  });
 });
 
 module.exports = router;

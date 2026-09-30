@@ -13,7 +13,7 @@ router.use(requireAuth);
 router.get('/', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) {
-    return res.json({ invoices: [], clients: [], products: [] });
+    return res.json({ invoices: [], estimates: [], clients: [], products: [] });
   }
 
   const [settings] = await Promise.all([
@@ -53,6 +53,28 @@ router.get('/', async (req, res) => {
       status: inv.status
     }));
 
+  // Estimates: quotes the team needs findable (numbers, client names, exact total).
+  const estimates = await prisma.estimate.findMany({
+    where: { workspaceId: req.workspaceId },
+    include: { client: true, items: true },
+    orderBy: { createdAt: 'desc' },
+    take: 300
+  });
+  const estimateMatches = estimates
+    .filter((est) => {
+      if (est.estimateNumber.toLowerCase().includes(q.toLowerCase()) || est.client.name.toLowerCase().includes(q.toLowerCase())) return true;
+      if (searchedAmount !== null && Math.abs(invoiceTotal(est, taxRate) - searchedAmount) < 0.01) return true;
+      return false;
+    })
+    .slice(0, 5)
+    .map((est) => ({
+      id: est.id,
+      estimateNumber: est.estimateNumber,
+      clientName: est.client.name,
+      total: invoiceTotal(est, taxRate),
+      status: est.status
+    }));
+
   const [clients, products] = await Promise.all([
     prisma.client.findMany({
       where: {
@@ -72,6 +94,7 @@ router.get('/', async (req, res) => {
 
   res.json({
     invoices: invoiceMatches,
+    estimates: estimateMatches,
     clients: clients.map((c) => ({
       id: c.id,
       name: c.name,

@@ -175,3 +175,45 @@ export const BatchArrowIcon = makeIcon(
     <path d="M20 17H4" />
   </>
 );
+
+/** Document with lines — estimates/quotes. */
+export const DocumentIcon = makeIcon(
+  <>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 2v6h6" />
+    <path d="M8 13h8M8 17h5" />
+  </>
+);
+
+/** Check in a circle — "accepted" / confirm. */
+export const CheckCircleIcon = makeIcon(
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+  </>
+);
+
+/** X in a circle — "declined". */
+export const XCircleIcon = makeIcon(
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15 9-6 6M9 9l6 6" />
+  </>
+);
+
+/** Arrow turning into a document — "convert estimate to invoice". */
+export const ConvertIcon = makeIcon(
+  <>
+    <path d="M16 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+    <path d="M10 17l5-5-5-5" />
+    <path d="M15 12H3" />
+  </>
+);
+
+/** Link/chain — copy the public quote link. */
+export const LinkIcon = makeIcon(
+  <>
+    <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+    <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+  </>
+);

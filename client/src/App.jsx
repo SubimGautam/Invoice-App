@@ -14,6 +14,9 @@ import Products from './pages/Products';
 import NewInvoice from './pages/Newinvoice';
 import EditInvoice from './pages/Editinvoice';
 import InvoiceDetail from './pages/Invoicedetail ';
+import Estimates from './pages/Estimates';
+import EstimateDetail from './pages/EstimateDetail';
+import EstimateView from './pages/EstimateView';
 import Payments from './pages/Payments';
 import Notifications from './pages/Notifications';
 import Reports from './pages/Reports';
@@ -33,6 +36,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/pay/:token" element={<PaymentLink />} />
+          {/* Public quote page: reviewed and answered by clients with no account. */}
+          <Route path="/q/:token" element={<EstimateView />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
           <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
@@ -42,6 +47,8 @@ function App() {
           <Route path="/invoices/new" element={<ProtectedRoute><NewInvoice /></ProtectedRoute>} />
           <Route path="/invoices/:id/edit" element={<ProtectedRoute><EditInvoice /></ProtectedRoute>} />
           <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
+          <Route path="/estimates" element={<ProtectedRoute><Estimates /></ProtectedRoute>} />
+          <Route path="/estimates/:id" element={<ProtectedRoute><EstimateDetail /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings/></ProtectedRoute>} />
           <Route path="/recurring" element={<ProtectedRoute><Recurring /></ProtectedRoute>} />
