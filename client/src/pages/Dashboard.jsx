@@ -7,25 +7,25 @@ import { formatMoney, compactMoney } from '../lib/currency';
 import StatusPill from '../components/StatusPill';
 import { computeDisplayStatus, displayStatusLabel } from '../components/status';
 
-// --- Icons (Figma assets) ---
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
-const imgExportIcon = "https://www.figma.com/api/mcp/asset/fed6e5c6-77b3-428a-8cda-1e295dfdcdc3.svg";
-const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
-const imgOutstandingIcon = "https://www.figma.com/api/mcp/asset/b3072c36-2e8e-4829-b979-94a17721eaf6.svg";
-const imgUpArrowIcon = "https://www.figma.com/api/mcp/asset/dc34d4bd-0a48-4812-b678-91cbb2592f0d.svg";
-const imgPaidIcon = "https://www.figma.com/api/mcp/asset/c546e0f2-2dd6-48ea-be7a-5722153d230f.svg";
-const imgOverdueIcon = "https://www.figma.com/api/mcp/asset/e5b6e109-b68f-47fc-be57-889f8473d30f.svg";
-const imgDraftsIcon = "https://www.figma.com/api/mcp/asset/eb6c4df5-54e4-4ee5-bd09-2a4c7587f4b8.svg";
-const imgSearchIcon = "https://www.figma.com/api/mcp/asset/43fbf5d1-f4ec-4e81-ad71-b7cdabc39b32.svg";
-const imgCalendarIcon = "https://www.figma.com/api/mcp/asset/b96139e6-8d12-4c65-a657-b14bb30c8b58.svg";
-const imgCaretDown = "https://www.figma.com/api/mcp/asset/2d626d50-ffe8-4056-b11d-6b5096c58daa.svg";
-const imgFilterIcon = "https://www.figma.com/api/mcp/asset/e294acdb-83d7-4814-b055-8336c80f8470.svg";
-const imgEyeIcon = "https://www.figma.com/api/mcp/asset/2b718d92-a786-4ad2-b01b-c61e33aa6449.svg";
-const imgDotsIcon = "https://www.figma.com/api/mcp/asset/b2d929a9-4804-4ad3-a21d-792a9d07b793.svg";
-const imgEditIcon = "https://www.figma.com/api/mcp/asset/f90f6c04-d63a-4ed6-8974-d2ee8d7665b6.svg";
-const imgChevronLeft = "https://www.figma.com/api/mcp/asset/98207ea4-983b-4392-b8d2-a1360da77d63.svg";
-const imgChevronRightSm = "https://www.figma.com/api/mcp/asset/f9953c37-3a07-4c53-afcd-9557c56ab77a.svg";
-const imgBatchArrow = "https://www.figma.com/api/mcp/asset/506ce05d-8e1e-49f0-8bbc-1f0d608ed5bf.svg";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CaretDownIcon,
+  PlusIcon,
+  SearchIcon,
+  ExportIcon,
+  OutstandingIcon,
+  UpArrowIcon,
+  PaidIcon,
+  OverdueIcon,
+  DraftsIcon,
+  CalendarIcon,
+  FilterIcon,
+  DotsIcon,
+  EditIcon,
+  EyeIcon,
+  BatchArrowIcon,
+} from '../components/Icons';
 
 // Fallback when the server didn't attach a total (shouldn't happen — the list
 // endpoint computes real totals, but this keeps the render safe).
@@ -153,7 +153,7 @@ function KPICard({ label, value, valueColor, icon, iconBg, footnote, badge, badg
           </p>
         </div>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: iconBg }}>
-          <img src={icon} alt="" className="w-4.5 h-4.5" />
+          {icon}
         </div>
       </div>
       <div className="flex items-center justify-between">
@@ -397,7 +397,7 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-1">
               <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-              <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+              <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
               <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Dashboard</span>
             </div>
             <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Dashboard</h1>
@@ -408,14 +408,14 @@ export default function Dashboard() {
               disabled={exporting}
               className="flex items-center gap-1.5 bg-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] text-sm font-semibold text-[#131b2e] px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-60"
             >
-              <img src={imgExportIcon} alt="" className="w-3 h-3" />
+              <ExportIcon className="w-3 h-3" />
               {exporting ? 'Exporting...' : 'Export CSV'}
             </button>
             <Link
               to="/invoices/new"
               className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors"
             >
-              <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
+              <PlusIcon className="w-2.5 h-2.5" />
               New Invoice
             </Link>
           </div>
@@ -442,17 +442,17 @@ export default function Dashboard() {
               <KPICard
                 label="Total Outstanding"
                 value={formatMoney(stats.sums.totalOutstanding, currency)}
-                icon={imgOutstandingIcon}
+                icon={<OutstandingIcon className="w-[18px] h-[18px]" />}
                 iconBg="#eaedff"
                 footnote={`${stats.counts.all - stats.counts.draft - stats.counts.paid} invoices pending`}
-                badge={<span className="flex items-center gap-1"><img src={imgUpArrowIcon} alt="" className="w-2.5 h-1.5" />Live</span>}
+                badge={<span className="flex items-center gap-1"><UpArrowIcon className="w-2.5 h-1.5" />Live</span>}
                 badgeColor="#006c49"
                 badgeBg="#f2f3ff"
               />
               <KPICard
                 label="Paid This Month"
                 value={formatMoney(stats.sums.paidThisMonth, currency)}
-                icon={imgPaidIcon}
+                icon={<PaidIcon className="w-[18px] h-[18px]" />}
                 iconBg="rgba(111,251,190,0.3)"
                 footnote={`${stats.counts.paid} settled invoices`}
                 badge="On schedule"
@@ -463,7 +463,7 @@ export default function Dashboard() {
                 label="Overdue"
                 value={formatMoney(stats.sums.overdueTotal, currency)}
                 valueColor="#ba1a1a"
-                icon={imgOverdueIcon}
+                icon={<OverdueIcon className="w-[18px] h-[18px]" />}
                 iconBg="rgba(255,218,214,0.4)"
                 footnote={`${stats.counts.overdue} delayed client payments`}
                 badge={stats.counts.overdue > 0 ? 'Requires action' : 'All clear'}
@@ -473,7 +473,7 @@ export default function Dashboard() {
               <KPICard
                 label="Drafts (Unsent)"
                 value={formatMoney(stats.sums.draftsTotal, currency)}
-                icon={imgDraftsIcon}
+                icon={<DraftsIcon className="w-[18px] h-[18px]" />}
                 iconBg="#e2e7ff"
                 footnote={`${stats.counts.draft} written — not sent to any client`}
                 badge="Not released"
@@ -509,7 +509,7 @@ export default function Dashboard() {
 
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div className="relative flex-1 max-w-md min-w-[240px]">
-                    <img src={imgSearchIcon} alt="" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
                     <input
                       type="text"
                       value={search}
@@ -520,12 +520,12 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button className="flex items-center gap-1.5 h-10 px-4 rounded-xl bg-[#f2f3ff] text-sm font-medium text-[#131b2e] hover:bg-gray-200 transition-colors">
-                      <img src={imgCalendarIcon} alt="" className="w-3.5 h-3.5" />
+                      <CalendarIcon className="w-3.5 h-3.5" />
                       All Time
-                      <img src={imgCaretDown} alt="" className="w-2 h-1.5" />
+                      <CaretDownIcon className="w-2 h-1.5" />
                     </button>
                     <button className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#f2f3ff] hover:bg-gray-200 transition-colors">
-                      <img src={imgFilterIcon} alt="" className="w-3.5 h-3.5" />
+                      <FilterIcon className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -594,14 +594,14 @@ export default function Dashboard() {
                               to={inv.displayStatus === 'draft' ? `/invoices/${inv.id}/edit` : `/invoices/${inv.id}`}
                               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors inline-block"
                             >
-                              <img src={inv.displayStatus === 'draft' ? imgEditIcon : imgEyeIcon} alt="" className="w-4 h-3.5" />
+                              {inv.displayStatus === 'draft' ? <EditIcon className="w-4 h-3.5" /> : <EyeIcon className="w-4 h-3.5" />}
                             </Link>
                             <button
                               onClick={() => setMenuId(menuId === inv.id ? null : inv.id)}
                               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                               aria-label="More actions"
                             >
-                              <img src={imgDotsIcon} alt="" className="w-1 h-3" />
+                              <DotsIcon className="w-1 h-3" />
                             </button>
                           </div>
                           {menuId === inv.id && (
@@ -663,7 +663,7 @@ export default function Dashboard() {
                       page <= 1 ? 'bg-[#f2f3ff] text-[#464555] opacity-50 cursor-not-allowed' : 'bg-[#f2f3ff] text-[#131b2e] hover:bg-gray-200'
                     }`}
                   >
-                    <img src={imgChevronLeft} alt="" className="w-1.5 h-2" />
+                    <ChevronLeftIcon className="w-1.5 h-2" />
                     Previous
                   </button>
                   <button className="w-9 h-9 rounded-xl bg-[#eaedff] text-xs font-bold text-[#3525cd]">{page}</button>
@@ -675,7 +675,7 @@ export default function Dashboard() {
                     }`}
                   >
                     Next
-                    <img src={imgChevronRightSm} alt="" className="w-1.5 h-2" />
+                    <ChevronRightIcon className="w-1.5 h-2" />
                   </button>
                 </div>
               </div>
@@ -745,7 +745,7 @@ export default function Dashboard() {
                     className="mt-4 w-full flex items-center justify-center gap-1.5 bg-[#3525cd] text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-[#2b1fb8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {runningBatch ? 'Sending…' : 'Send Reminders'}
-                    <img src={imgBatchArrow} alt="" className="w-3.5 h-3" />
+                    <BatchArrowIcon className="w-3.5 h-3" />
                   </button>
                 ) : (
                   <p className="mt-4 text-[11px] text-[#464555]">Read-only — an admin can run reminders.</p>

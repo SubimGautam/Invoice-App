@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api, assetUrl } from '../api';
-
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
+import { ChevronRightIcon } from '../components/Icons';
 
 const CURRENCIES = [
   { code: 'USD', label: 'US Dollar ($)' },
@@ -204,7 +203,7 @@ export default function Settings() {
       <div className="py-4">
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-          <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+          <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
           <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Settings</span>
         </div>
         <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1 mb-6">Settings</h1>

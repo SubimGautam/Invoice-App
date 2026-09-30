@@ -4,11 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import Avatar from './Avatar';
 import imgLogoutIcon from '../assets/Logout.png';
-
-const imgBellIcon = "https://www.figma.com/api/mcp/asset/a5ba9df9-fe7a-42b3-bc1e-30920939bc2a.svg";
-const imgHelpIcon = "https://www.figma.com/api/mcp/asset/00cf93c1-f1c2-4326-bdd2-b96f39af8db3.svg";
-const imgChevron = "https://www.figma.com/api/mcp/asset/af9cfe37-009e-4c4c-9a8c-17f1d885ea5b.svg";
-const imgSearchIcon = "https://www.figma.com/api/mcp/asset/43fbf5d1-f4ec-4e81-ad71-b7cdabc39b32.svg";
+import { BellIcon, HelpIcon, ChevronDownIcon, SearchIcon } from './Icons';
 
 const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', staff: 'Staff', viewer: 'Viewer' };
 const ROLE_STYLES = {
@@ -252,7 +248,7 @@ export default function TopBar() {
   return (
     <header className="fixed top-0 left-0 md:left-64 right-0 h-16 backdrop-blur-md bg-[rgba(250,248,255,0.9)] border-b border-[rgba(199,196,216,0.3)] shadow-[0px_1px_8px_0px_rgba(15,23,42,0.04)] flex items-center justify-between px-4 md:px-6 z-30">
       <div className="relative flex-1 max-w-md hidden sm:block">
-        <img src={imgSearchIcon} alt="" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
+        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
         <input
           type="text"
           placeholder={`Search ${workspace?.name || 'billing'} invoices, clients, or amounts...`}
@@ -268,7 +264,7 @@ export default function TopBar() {
             className="flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-xl border border-[rgba(199,196,216,0.4)] bg-white text-sm font-semibold text-[#131b2e] hover:bg-gray-50 transition-colors max-w-[200px]"
           >
             <span className="truncate">{workspace?.name || 'Select workspace'}</span>
-            <img src={imgChevron} alt="" className="w-2 h-1.5 opacity-60 transition-transform shrink-0" />
+            <ChevronDownIcon className="w-2 h-1.5 opacity-60 transition-transform shrink-0" />
           </button>
 
           {wsOpen && (
@@ -356,7 +352,7 @@ export default function TopBar() {
             aria-label="Notifications"
             className="relative w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors"
           >
-            <img src={imgBellIcon} alt="" className="w-4 h-4" />
+            <BellIcon className="w-4 h-4" />
             {unread > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-[#ba1a1a] text-white text-[10px] font-bold flex items-center justify-center">
                 {unread > 99 ? '99+' : unread}
@@ -408,7 +404,7 @@ export default function TopBar() {
         </div>
 
         <button className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors">
-          <img src={imgHelpIcon} alt="" className="w-4 h-4" />
+          <HelpIcon className="w-4 h-4" />
         </button>
         <div className="w-px h-6 bg-[rgba(199,196,216,0.4)] mx-1" />
         <div className="relative" ref={profileRef}>
@@ -422,7 +418,7 @@ export default function TopBar() {
             className="flex items-center gap-1.5 rounded-xl hover:bg-gray-100 transition-colors p-1"
           >
             <Avatar url={user?.avatarUrl} name={user?.name} />
-            <img src={imgChevron} alt="" className="w-2 h-1.5 opacity-60 hidden sm:block" />
+            <ChevronDownIcon className="w-2 h-1.5 opacity-60 hidden sm:block" />
           </button>
 
           {profileOpen && (

@@ -11,9 +11,7 @@ import imgRecurringIcon from '../assets/Recurring.png';
 import imgReportsIcon from '../assets/Reports.png';
 import imgSettingsIcon from '../assets/Setting.png';
 import imgMembersIcon from '../assets/Team and member.png';
-
-const imgPlusIcon = "https://www.figma.com/api/mcp/asset/aef0833e-f733-4e6f-87af-dec6a1e11336.svg";
-const imgChevron = "https://www.figma.com/api/mcp/asset/176d757b-ed9a-42af-afd7-576f39dbcd6d.svg";
+import { PlusIcon, ChevronDownIcon } from './Icons';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: imgDashboardIcon },
@@ -50,7 +48,7 @@ export default function Sidebar() {
             to="/invoices/new"
             className="w-full flex items-center justify-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-[0px_1px_1px_rgba(0,0,0,0.05)] transition-colors"
           >
-            <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
+            <PlusIcon className="w-2.5 h-2.5" />
             New Invoice
           </Link>
         </div>
@@ -105,7 +103,7 @@ export default function Sidebar() {
           <p className="text-sm font-semibold text-[#131b2e] truncate">{user?.name || 'Account'}</p>
           <p className="text-xs font-mono text-[#464555] truncate">{user?.email}</p>
         </div>
-        <img src={imgChevron} alt="" className="w-2 h-3.5 opacity-60" />
+        <ChevronDownIcon className="w-2 h-3.5 opacity-60" />
       </div>
     </aside>
   );

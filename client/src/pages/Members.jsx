@@ -4,9 +4,8 @@ import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import Avatar from '../components/Avatar';
+import { ChevronRightIcon, PlusIcon } from '../components/Icons';
 
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
-const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
 const imgCopyIcon =
   "data:image/svg+xml;charset=UTF-8," +
   encodeURIComponent(
@@ -114,7 +113,7 @@ export default function Members() {
           <div>
             <div className="flex items-center gap-1">
               <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-              <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+              <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
               <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Team</span>
             </div>
             <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Team &amp; Members</h1>
@@ -125,7 +124,7 @@ export default function Members() {
               disabled={generating}
               className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
             >
-              <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
+              <PlusIcon className="w-2.5 h-2.5" />
               {generating ? 'Generating...' : 'Invite Member'}
             </button>
           ) : (

@@ -3,9 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
-
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
-const imgBellIcon = "https://www.figma.com/api/mcp/asset/a5ba9df9-fe7a-42b3-bc1e-30920939bc2a.svg";
+import { ChevronRightIcon, BellIcon } from '../components/Icons';
 
 // A small map so each notification type gets a recognisable badge instead of a
 // raw internal name. Unknown types fall back to a neutral grey label.
@@ -111,7 +109,7 @@ export default function Notifications() {
           <div>
             <div className="flex items-center gap-1">
               <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-              <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+              <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
               <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Notifications</span>
             </div>
             <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Notifications</h1>
@@ -124,7 +122,7 @@ export default function Notifications() {
             disabled={unread === 0 || markingAll}
             className="flex items-center gap-2 bg-[#4f46e5] hover:bg-[#4338ca] disabled:opacity-50 text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors"
           >
-            <img src={imgBellIcon} alt="" className="w-3.5 h-3.5" />
+            <BellIcon className="w-3.5 h-3.5" />
             {markingAll ? 'Marking…' : unread === 0 ? 'All read' : `Mark all read (${unread})`}
           </button>
         </div>

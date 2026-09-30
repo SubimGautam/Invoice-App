@@ -3,10 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
 import { formatMoney } from '../lib/currency';
-
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
-const imgSearchIcon = "https://www.figma.com/api/mcp/asset/43fbf5d1-f4ec-4e81-ad71-b7cdabc39b32.svg";
-const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
+import { ChevronRightIcon, SearchIcon, PlusIcon } from '../components/Icons';
 
 const PERIODS = [
   { months: 0, label: 'All time' },
@@ -219,7 +216,7 @@ export default function Payments() {
           <div>
             <div className="flex items-center gap-1">
               <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-              <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+              <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
               <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">Payments</span>
             </div>
             <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1">Payments</h1>
@@ -240,7 +237,7 @@ export default function Payments() {
               onClick={() => { setRecordOpen(true); setActionError(''); }}
               className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors"
             >
-              <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
+              <PlusIcon className="w-2.5 h-2.5" />
               Record payment
             </button>
           </div>
@@ -287,7 +284,7 @@ export default function Payments() {
         <div className="mt-5 bg-white rounded-xl shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
           <div className="p-4 flex flex-wrap items-center gap-3">
             <div className="relative min-w-[220px] flex-1">
-              <img src={imgSearchIcon} alt="" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 opacity-60" />
               <input
                 type="text"
                 value={search}

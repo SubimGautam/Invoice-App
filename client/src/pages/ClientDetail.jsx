@@ -6,9 +6,7 @@ import ClientModal from '../components/ClientModal';
 import StatusPill from '../components/StatusPill';
 import { computeDisplayStatus } from '../components/status';
 import { api } from '../api';
-
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
-const imgPlusIcon = "https://www.figma.com/api/mcp/asset/18fa134b-70d7-4533-bc70-57ddf8eb0c31.svg";
+import { ChevronRightIcon, PlusIcon } from '../components/Icons';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
@@ -148,11 +146,11 @@ export default function ClientDetail() {
       <div className="py-4">
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-          <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+          <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
           <Link to="/clients" className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555] hover:text-[#3525cd]">
             Customers
           </Link>
-          <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+          <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
           <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">{client.name}</span>
         </div>
         <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1 mb-6">Customer Detail</h1>
@@ -179,7 +177,7 @@ export default function ClientDetail() {
                   to={`/invoices/new?client=${client.id}`}
                   className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors"
                 >
-                  <img src={imgPlusIcon} alt="" className="w-2.5 h-2.5" />
+                  <PlusIcon className="w-2.5 h-2.5" />
                   New Invoice
                 </Link>
               )}

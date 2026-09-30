@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
-
-const imgChevronRight = "https://www.figma.com/api/mcp/asset/d1746a44-fd1d-4316-8e4c-0f8692bb0500.svg";
+import { ChevronRightIcon } from '../components/Icons';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
@@ -353,9 +352,9 @@ export default function NewInvoice() {
       <div className="py-4">
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Workspace</span>
-          <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+          <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
           <span className="text-xs font-medium font-mono tracking-[0.6px] uppercase text-[#464555]">Ledger</span>
-          <img src={imgChevronRight} alt="" className="w-1.5 h-2 opacity-50" />
+          <ChevronRightIcon className="w-1.5 h-2 opacity-50" />
           <span className="text-xs font-semibold font-mono tracking-[0.6px] uppercase text-[#3525cd]">New Invoice</span>
         </div>
         <h1 className="text-[28px] font-bold tracking-[-0.7px] text-[#131b2e] mt-1 mb-6">New Invoice</h1>
