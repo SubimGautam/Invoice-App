@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
@@ -77,6 +77,10 @@ export default function EditInvoice() {
           description: item.description,
           quantity: String(item.quantity),
           unitPrice: String(item.unitPrice),
+          // '' = inherit the workspace default. The API stores the stored rate
+          // (null when inherited) separately from `effectiveTaxRate` precisely so
+          // this round-trips without baking the current default into the line.
+          taxRate: item.taxRate === null || item.taxRate === undefined ? '' : String(item.taxRate),
         }))
       );
     } catch (err) {
@@ -96,7 +100,7 @@ export default function EditInvoice() {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { description: '', quantity: '1', unitPrice: '0' }]);
+    setItems((prev) => [...prev, { description: '', quantity: '1', unitPrice: '0', taxRate: '' }]);
   }
 
   function removeItem(index) {
@@ -107,10 +111,13 @@ export default function EditInvoice() {
   // Shared exact money math (lib/money.js), same as Newinvoice and the server:
   // discount is clamped to the subtotal, then tax is applied to the discounted
   // amount, all in integer cents.
-  const { subtotal, discount: discountValue, tax, total } = useMemo(
+  const { subtotal, discount: discountValue, tax, total, taxByRate } = useMemo(
     () => computeTotals({ items, discount }, Number(taxRate) || 0),
     [items, discount, taxRate]
   );
+  // More than one rate in play means the single "Tax (n%)" line would misdescribe
+  // the charge, so it splits per rate.
+  const mixedRates = taxByRate.length > 1;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -125,6 +132,8 @@ export default function EditInvoice() {
         description: item.description.trim(),
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
+        // null = inherit the workspace default; never 0 for a blank field.
+        taxRate: item.taxRate === '' || item.taxRate === undefined ? null : Number(item.taxRate),
       }))
       .filter((item) => item.description);
 
@@ -134,6 +143,10 @@ export default function EditInvoice() {
     }
     if (cleanedItems.some((item) => !(item.quantity > 0) || item.unitPrice < 0)) {
       setError('Check that quantities are greater than 0 and unit prices aren\u2019t negative.');
+      return;
+    }
+    if (cleanedItems.some((item) => item.taxRate !== null && !(item.taxRate >= 0 && item.taxRate <= 100))) {
+      setError('Tax rates must be between 0 and 100.');
       return;
     }
 
@@ -302,6 +315,7 @@ export default function EditInvoice() {
                     <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2 w-1/2">Description</th>
                     <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Qty</th>
                     <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Unit Rate</th>
+                    <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2" title={`Blank uses the workspace default of ${taxRate}%`}>Tax %</th>
                     <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Amount</th>
                     <th className="px-4 py-2 w-10" />
                   </tr>
@@ -336,6 +350,20 @@ export default function EditInvoice() {
                           value={item.unitPrice}
                           onChange={(e) => updateItem(i, 'unitPrice', e.target.value)}
                           className="w-28 h-9 rounded-md px-2 text-sm text-right text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:bg-[#f2f3ff]"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={item.taxRate ?? ''}
+                          onChange={(e) => updateItem(i, 'taxRate', e.target.value)}
+                          placeholder={String(taxRate)}
+                          title={`Leave blank to use the workspace default of ${taxRate}%`}
+                          aria-label={`Tax rate for line ${i + 1}, percent. Blank uses the workspace default of ${taxRate}%`}
+                          className="w-20 h-9 rounded-md px-2 text-sm text-center text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:bg-[#f2f3ff]"
                         />
                       </td>
                       <td className="px-4 py-2 text-right font-semibold text-[#131b2e]">
@@ -393,8 +421,19 @@ export default function EditInvoice() {
                   </div>
                 )}
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-[#464555]">Tax ({taxRate}%)</span>
-                  <span className="text-sm text-[#131b2e]">{formatMoney(tax)}</span>
+                  {mixedRates
+                    ? taxByRate.map((row) => (
+                        <Fragment key={row.rate}>
+                          <span className="text-sm text-[#464555]">Tax ({row.rate}%)</span>
+                          <span className="text-sm text-[#131b2e]">{formatMoney(row.amount)}</span>
+                        </Fragment>
+                      ))
+                    : (
+                      <>
+                        <span className="text-sm text-[#464555]">Tax ({taxRate}%)</span>
+                        <span className="text-sm text-[#131b2e]">{formatMoney(tax)}</span>
+                      </>
+                    )}
                 </div>
                 <div className="flex items-center justify-between gap-12 border-t border-gray-200/70 pt-2.5">
                   <span className="text-sm font-semibold text-[#131b2e]">TOTAL</span>

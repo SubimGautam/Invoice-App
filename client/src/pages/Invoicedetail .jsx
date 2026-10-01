@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
@@ -231,12 +231,20 @@ export default function InvoiceDetail() {
   // same cents the server will actually charge — the previous inline float math
   // could print a tax line of 13.0429.
   const totals = useMemo(() => {
-    if (!invoice) return { subtotal: 0, discount: 0, taxable: 0, tax: 0, total: 0, taxRate: 0, paid: 0, remaining: 0 };
+    if (!invoice) {
+      return { subtotal: 0, discount: 0, taxable: 0, tax: 0, total: 0, taxRate: 0, taxRows: [], paid: 0, remaining: 0 };
+    }
     const taxRate = Number(settings?.defaultTaxRate || 0);
-    const { subtotal, discount, taxable, tax } = computeTotals(invoice, taxRate);
+    const { subtotal, discount, taxable, tax, taxByRate } = computeTotals(invoice, taxRate);
     // Prefer the server's authoritative total; fall back to our own exact sum.
     const total = invoice.total != null ? moneyNumber(invoice.total) : fromCents(toCents(taxable) + toCents(tax));
     const paid = moneyNumber(invoice.paid ?? 0);
+    // One row per rate once the invoice mixes them. A single "Tax (13%)" line
+    // would misdescribe a mixed-rate invoice — and the per-rate split is what a
+    // VAT return needs, so it is worth showing even at one rate.
+    const taxRows = taxByRate.length
+      ? taxByRate.map((r) => ({ rate: r.rate, amount: r.amount }))
+      : [{ rate: taxRate, amount: tax }];
     return {
       subtotal,
       discount,
@@ -244,6 +252,7 @@ export default function InvoiceDetail() {
       tax,
       total,
       taxRate,
+      taxRows,
       paid,
       remaining: Math.max(0, fromCents(toCents(total) - toCents(paid))),
     };
@@ -574,7 +583,10 @@ export default function InvoiceDetail() {
           ...(totals.discount > 0
             ? [[{ content: 'Discount', styles: { fontStyle: 'bold' } }, { content: `− ${formatMoney(totals.discount)}`, styles: { halign: 'right' } }]]
             : []),
-          [{ content: `Tax (${totals.taxRate}%)`, styles: { fontStyle: 'bold' } }, { content: formatMoney(totals.tax), styles: { halign: 'right' } }],
+          ...totals.taxRows.map((row) => [
+            { content: `Tax (${row.rate}%)`, styles: { fontStyle: 'bold' } },
+            { content: formatMoney(row.amount), styles: { halign: 'right' } },
+          ]),
         ],
       });
 
@@ -940,8 +952,12 @@ export default function InvoiceDetail() {
                     </div>
                   )}
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-[#464555]">Tax ({totals.taxRate}%)</span>
-                    <span className="text-[#131b2e]">{formatMoney(totals.tax)}</span>
+                    {totals.taxRows.map((row) => (
+                      <Fragment key={row.rate}>
+                        <span className="text-[#464555]">Tax ({row.rate}%)</span>
+                        <span className="text-[#131b2e]">{formatMoney(row.amount)}</span>
+                      </Fragment>
+                    ))}
                   </div>
                   <div className="h-px bg-[#c7c4d8]/50 my-1" />
                   <div className="flex items-center justify-between">

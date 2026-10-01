@@ -18,7 +18,11 @@ const itemSchema = z.object({
   description: z.string().min(1, 'Item description is required'),
   quantity: z.number().positive('Quantity must be greater than 0'),
   unitPrice: z.number().nonnegative('Unit price cannot be negative'),
-  productId: z.string().uuid('A valid product is required').optional()
+  productId: z.string().uuid('A valid product is required').optional(),
+  // Per-line tax rate; absent/null inherits the workspace default. An estimate
+  // has to carry the same mixed rates as the invoice it becomes, or converting
+  // would silently restate the tax the client already agreed to.
+  taxRate: z.number().nonnegative('Tax rate cannot be negative').max(100, 'Tax rate cannot exceed 100').nullable().optional()
 });
 
 const estimateSchema = z.object({
@@ -161,7 +165,8 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
               description: item.description,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
-              productId: item.productId || null
+              productId: item.productId || null,
+              taxRate: item.taxRate ?? null
             }))
           },
           auditLogs: { create: { type: 'created', message: `Estimate created as ${STATUS_LABEL[status]}` } }
@@ -237,7 +242,8 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
             description: item.description,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            productId: item.productId || null
+            productId: item.productId || null,
+            taxRate: item.taxRate ?? null
           }))
         },
         auditLogs: { create: { type: 'updated', message: 'Estimate details and line items updated' } }
@@ -386,7 +392,8 @@ router.post('/:id/convert', requireRole('owner', 'admin', 'staff'), async (req, 
                 description: it.description,
                 quantity: it.quantity,
                 unitPrice: it.unitPrice,
-                productId: it.productId || null
+                productId: it.productId || null,
+                taxRate: it.taxRate ?? null
               }))
             },
             auditLogs: { create: { type: 'created', message: `Created from estimate ${estimate.estimateNumber}` } }

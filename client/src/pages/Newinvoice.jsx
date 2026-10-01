@@ -8,7 +8,9 @@ import { computeTotals, lineAmount } from '../lib/money';
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
 function emptyItem() {
-  return { description: '', quantity: '1', unitPrice: '0', productId: '' };
+  // taxRate '' means "inherit the workspace default". An explicit 0 is a real
+  // choice (a zero-rated line) and must stay distinguishable from blank.
+  return { description: '', quantity: '1', unitPrice: '0', productId: '', taxRate: '' };
 }
 
 function todayISO() {
@@ -39,7 +41,7 @@ function InvoicePreview({ profile, settings, client, items, notes, issueDate, du
   // Exact cents arithmetic (lib/money), so the preview total the user is typing
   // towards is the same cents the server will compute. The old float math could
   // show 113.3729 here and 113.37 on the saved invoice.
-  const { subtotal, discount, tax, total } = computeTotals(
+  const { subtotal, discount, tax, total, taxByRate } = computeTotals(
     { items: rows, discount: settings.discount },
     Number(settings.taxRate) || 0
   );
@@ -100,18 +102,20 @@ function InvoicePreview({ profile, settings, client, items, notes, issueDate, du
                 <th className="py-2">Description</th>
                 <th className="py-2 text-center">Qty</th>
                 <th className="py-2 text-right">Unit Rate</th>
+                <th className="py-2 text-center">Tax %</th>
                 <th className="py-2 text-right">Amount</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={4} className="py-4 text-center text-[#464555]">Add at least one line item to preview.</td></tr>
+                <tr><td colSpan={5} className="py-4 text-center text-[#464555]">Add at least one line item to preview.</td></tr>
               )}
               {rows.map((r, i) => (
                 <tr key={i} className="border-b border-gray-50">
                   <td className="py-2.5 text-[#131b2e]">{r.description}</td>
                   <td className="py-2.5 text-center text-[#464555]">{r.quantity}</td>
                   <td className="py-2.5 text-right text-[#464555]">{formatMoney(r.unitPrice)}</td>
+                  <td className="py-2.5 text-center text-[#464555]">{r.taxRate === '' || r.taxRate === undefined ? `${settings.taxRate || 0}%` : `${r.taxRate}%`}</td>
                   <td className="py-2.5 text-right font-semibold text-[#131b2e]">{formatMoney(r.amount)}</td>
                 </tr>
               ))}
@@ -124,7 +128,14 @@ function InvoicePreview({ profile, settings, client, items, notes, issueDate, du
               {discount > 0 && (
                 <p className="flex justify-between"><span className="text-[#464555]">Discount</span><span>− {formatMoney(discount)}</span></p>
               )}
-              <p className="flex justify-between"><span className="text-[#464555]">Tax ({(settings.taxRate || 0)}%)</span><span>{formatMoney(tax)}</span></p>
+              {taxByRate.length > 1
+                ? taxByRate.map((row) => (
+                    <p key={row.rate} className="flex justify-between">
+                      <span className="text-[#464555]">Tax ({row.rate}%)</span>
+                      <span>{formatMoney(row.amount)}</span>
+                    </p>
+                  ))
+                : <p className="flex justify-between"><span className="text-[#464555]">Tax ({(settings.taxRate || 0)}%)</span><span>{formatMoney(tax)}</span></p>}
               <p className="flex justify-between items-center border-t border-gray-100 pt-2 font-bold text-[#131b2e]">
                 <span>TOTAL</span><span>{formatMoney(total)}</span>
               </p>
@@ -264,6 +275,13 @@ export default function NewInvoice() {
           ? {
               ...item,
               productId: product.id,
+              // Seed the line from the product's catalogue rate. Copied onto the
+              // line rather than looked up at render time, so changing the
+              // product's rate later cannot restate what a client was charged.
+              // Only when non-zero: Product.taxRate defaults to 0, which is
+              // ambiguous between "zero-rated" and "no opinion", and inheriting
+              // the workspace default is what an un-rated line has always done.
+              taxRate: Number(product.taxRate) > 0 ? String(product.taxRate) : item.taxRate,
               description: product.name,
               unitPrice: String(product.price),
             }
@@ -284,10 +302,14 @@ export default function NewInvoice() {
   // Shared exact money math. This is the running total the user types towards,
   // so it must be identical to what the server will compute from the same
   // inputs — the invoice they save has to total what they were shown.
-  const { subtotal, discount: discountValue, tax, total } = useMemo(
+  const { subtotal, discount: discountValue, tax, total, taxByRate } = useMemo(
     () => computeTotals({ items, discount }, Number(taxRate) || 0),
     [items, discount, taxRate]
   );
+  // A single-rate invoice shows the familiar one-line "Tax (13%)". Once lines
+  // carry different rates that line would be a lie, so it splits per rate —
+  // which is also what the client's copy of the invoice will show.
+  const mixedRates = taxByRate.length > 1;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -303,6 +325,9 @@ export default function NewInvoice() {
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
         ...(item.productId ? { productId: item.productId } : {}),
+        // null = inherit the workspace default. Sending 0 for a blank field
+        // would silently turn every ordinary line into a zero-rated one.
+        taxRate: item.taxRate === '' || item.taxRate === undefined ? null : Number(item.taxRate),
       }))
       .filter((item) => item.description);
 
@@ -312,6 +337,10 @@ export default function NewInvoice() {
     }
     if (cleanedItems.some((item) => !(item.quantity > 0) || item.unitPrice < 0)) {
       setError('Check that quantities are greater than 0 and unit prices aren\u2019t negative.');
+      return;
+    }
+    if (cleanedItems.some((item) => item.taxRate !== null && !(item.taxRate >= 0 && item.taxRate <= 100))) {
+      setError('Tax rates must be between 0 and 100.');
       return;
     }
 
@@ -458,6 +487,7 @@ export default function NewInvoice() {
                       <th className="text-left text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2 w-1/2">Product / Description</th>
                       <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Qty</th>
                       <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Unit Rate</th>
+                      <th className="text-center text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2" title={`Blank uses the workspace default of ${taxRate}%`}>Tax %</th>
                       <th className="text-right text-[11px] font-semibold font-mono tracking-[0.6px] uppercase text-[#464555] px-4 py-2">Amount</th>
                       <th className="px-4 py-2 w-10" />
                     </tr>
@@ -512,6 +542,20 @@ export default function NewInvoice() {
                             className="w-28 h-9 rounded-md px-2 text-sm text-right text-[#131b2e] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:bg-[#f2f3ff]"
                           />
                         </td>
+                        <td className="px-4 py-2">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={item.taxRate ?? ''}
+                            onChange={(e) => updateItem(i, 'taxRate', e.target.value)}
+                            placeholder={String(taxRate)}
+                            title={`Leave blank to use the workspace default of ${taxRate}%`}
+                            aria-label={`Tax rate for line ${i + 1}, percent. Blank uses the workspace default of ${taxRate}%`}
+                            className="w-20 h-9 rounded-md px-2 text-sm text-center text-[#131b2e] placeholder:text-[#9694a8] focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:bg-[#f2f3ff]"
+                          />
+                        </td>
                         <td className="px-4 py-2 text-right font-semibold text-[#131b2e]">
                           {formatMoney(rowTotals[i] || 0)}
                         </td>
@@ -560,10 +604,21 @@ export default function NewInvoice() {
                   <span className="text-sm text-[#464555]">Subtotal</span>
                   <span className="text-sm font-semibold text-[#131b2e]">{formatMoney(subtotal)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-12">
-                  <span className="text-sm text-[#464555]">Tax ({taxRate}%)</span>
-                  <span className="text-sm text-[#131b2e]">{formatMoney(tax)}</span>
-                </div>
+                {/* One row per rate once the invoice mixes them — a single
+                    "Tax (13%)" line would misdescribe the charge. */}
+                {mixedRates
+                  ? taxByRate.map((row) => (
+                      <div key={row.rate} className="flex items-center justify-between gap-12">
+                        <span className="text-sm text-[#464555]">Tax ({row.rate}%)</span>
+                        <span className="text-sm text-[#131b2e]">{formatMoney(row.amount)}</span>
+                      </div>
+                    ))
+                  : (
+                    <div className="flex items-center justify-between gap-12">
+                      <span className="text-sm text-[#464555]">Tax ({taxRate}%)</span>
+                      <span className="text-sm text-[#131b2e]">{formatMoney(tax)}</span>
+                    </div>
+                  )}
                 <div className="flex items-center justify-between gap-12 border-t border-gray-200/70 pt-2.5">
                   <span className="text-sm font-semibold text-[#131b2e]">TOTAL</span>
                   <span className="text-xl font-bold text-[#3525cd]">{formatMoney(total)}</span>

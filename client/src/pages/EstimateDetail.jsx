@@ -183,7 +183,13 @@ export default function EstimateDetail() {
   // Exact money math, matching server/lib/money.js and the invoice pages. This
   // is a quote a client accepts and may convert to an invoice, so the figure
   // has to be the same cents the server computes from the same line items.
-  const { subtotal, discount, tax, total } = computeTotals(estimate, taxRate);
+  const { subtotal, discount, tax, total, taxByRate } = computeTotals(estimate, taxRate);
+  // One row per rate once the quote mixes them. Note this no longer keys off the
+  // workspace default: a line can carry its own rate, so gating on `taxRate > 0`
+  // would hide the tax row of a mixed-rate quote whose default rate is 0 — while
+  // the total underneath it still included that tax.
+  const taxRows = taxByRate.length ? taxByRate : [{ rate: taxRate, amount: tax }];
+  const showTax = taxRows.some((r) => r.amount > 0);
   const locked = estimate.status === 'converted';
   const expired = estimate.status === 'sent' && isExpired(estimate);
   // Converting is only meaningful once the client has the quote. A draft has
@@ -339,12 +345,12 @@ export default function EstimateDetail() {
                       <span className="font-mono">− {formatMoney(discount, currency)}</span>
                     </div>
                   )}
-                  {taxRate > 0 && (
-                    <div className="flex items-center justify-between text-[#464555]">
-                      <span>Tax ({taxRate}%)</span>
-                      <span className="font-mono">{formatMoney(tax, currency)}</span>
+                  {showTax && taxRows.map((row) => (
+                    <div key={row.rate} className="flex items-center justify-between text-[#464555]">
+                      <span>Tax ({row.rate}%)</span>
+                      <span className="font-mono">{formatMoney(row.amount, currency)}</span>
                     </div>
-                  )}
+                  ))}
                   <div className="flex items-center justify-between font-bold text-[#131b2e] pt-1.5 border-t border-[#e2e7ff]">
                     <span>Total</span>
                     <span className="font-mono">{formatMoney(total, currency)}</span>

@@ -286,6 +286,16 @@ model InvoiceItem {
   description String
   quantity    Decimal
   unitPrice   Decimal
+  // This line's own tax rate, so one invoice can mix rates (e.g. standard-rated
+  // labour alongside a zero-rated supply). NULL means "inherit the workspace
+  // defaultTaxRate", which is what every line created before this column existed
+  // means — so existing invoices total exactly as they always have.
+  //
+  // Stored per line rather than only on Product.taxRate on purpose: the rate
+  // that applies is a property of the SALE, not of the catalogue entry. Editing
+  // a product's tax rate tomorrow must not retroactively change what a client
+  // was charged last quarter.
+  taxRate     Decimal?
 
   @@index([productId])
 }
@@ -341,6 +351,10 @@ model EstimateItem {
   description String
   quantity    Decimal
   unitPrice   Decimal
+  // Same per-line override as InvoiceItem.taxRate — an estimate has to be able
+  // to carry the same mixed rates as the invoice it converts into, or the
+  // converted invoice would silently restate the quoted tax.
+  taxRate     Decimal?
 
   @@index([productId])
 }

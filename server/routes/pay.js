@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const prisma = require('../prisma');
 const { notifyWorkspace } = require('../lib/notify');
 const { sendEmail } = require('../lib/mailer');
-const { invoiceTotal, paidSum, lineAmount, moneyNumber, MONEY_EPSILON } = require('../lib/money');
+const { invoiceTotal, paidSum, computeTotals, withTotals, moneyNumber, MONEY_EPSILON } = require('../lib/money');
 const { paymentReceiptEmail } = require('../lib/emailTemplates');
 const esewa = require('../lib/esewa');
 
@@ -74,9 +74,13 @@ async function loadByToken(token) {
 function toSummary(invoice) {
   const settings = invoice.workspace.settings;
   const taxRate = Number(settings?.defaultTaxRate || 0);
-  const total = invoiceTotal(invoice, taxRate);
+  // One computation, reused for every figure below, so the lines, the tax
+  // summary and the total can never describe different invoices.
+  const breakdown = computeTotals(invoice, taxRate);
+  const summaryItems = withTotals({ items: invoice.items }, taxRate).items;
+  const total = breakdown.total;
   const paid = paidSum(invoice.payments);
-  const remaining = Math.round(Math.max(0, total - paid) * 100) / 100;
+  const remaining = Math.max(0, total - paid);
   return {
     invoiceId: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -87,16 +91,24 @@ function toSummary(invoice) {
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     notes: invoice.notes,
-    discount: Number(invoice.discount || 0),
-    items: invoice.items.map((it) => ({
+    items: summaryItems.map((it, i) => ({
       description: it.description,
       quantity: Number(it.quantity),
       unitPrice: Number(it.unitPrice),
-      amount: lineAmount(it)
+      amount: it.amount,
+      // Per-line tax, so the customer's copy of the invoice shows WHY the total
+      // is what it is when lines carry different rates.
+      taxAmount: it.taxAmount,
+      effectiveTaxRate: it.effectiveTaxRate
     })),
     // money.js already returns cent-rounded numbers; the old
     // `Math.round(x * 100) / 100` here was redundant float rounding that is
     // itself a 1.005 -> 1.00 trap.
+    subtotal: breakdown.subtotal,
+    discount: breakdown.discount,
+    taxable: breakdown.taxable,
+    tax: breakdown.tax,
+    taxBreakdown: breakdown.taxByRate,
     total,
     paid,
     remaining,

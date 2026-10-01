@@ -12,7 +12,10 @@ const itemSchema = z.object({
   description: z.string().min(1, 'Item description is required'),
   quantity: z.number().positive('Quantity must be greater than 0'),
   unitPrice: z.number().nonnegative('Unit price cannot be negative'),
-  productId: z.string().uuid('A valid product is required').optional()
+  productId: z.string().uuid('A valid product is required').optional(),
+  // Per-line tax rate. Omitted/null means "inherit the workspace default", so
+  // every caller that predates this field keeps behaving exactly as before.
+  taxRate: z.number().nonnegative('Tax rate cannot be negative').max(100, 'Tax rate cannot exceed 100').nullable().optional()
 });
 
 const invoiceSchema = z.object({
@@ -35,7 +38,7 @@ const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partial
 // Shared module — see lib/money.js. Every dollar figure in the app is derived
 // from line items + discount (there's no stored "total" column), so all money
 // math lives in one place to keep the client and the API consistent.
-const { invoiceTotal, paidSum, itemsSubtotal, MONEY_EPSILON } = require('../lib/money');
+const { invoiceTotal, paidSum, itemsSubtotal, withTotals, MONEY_EPSILON } = require('../lib/money');
 const { amount } = require('../lib/emailTemplates');
 
 // GET /api/invoices — list invoices.
@@ -128,7 +131,10 @@ router.get('/stats', async (req, res) => {
         status: true,
         dueDate: true,
         discount: true,
-        items: { select: { quantity: true, unitPrice: true } },
+        // taxRate is NOT optional here: computeTotals reads each line's own rate,
+        // and a select that omitted it would make every mixed-rate invoice fall
+        // back to the workspace default and total wrongly in the list view.
+        items: { select: { quantity: true, unitPrice: true, taxRate: true } },
         payments: { select: { amount: true, paymentDate: true } }
       }
     })
@@ -210,7 +216,10 @@ router.get('/timeline', async (req, res) => {
         status: true,
         createdAt: true,
         discount: true,
-        items: { select: { quantity: true, unitPrice: true } },
+        // taxRate is NOT optional here: computeTotals reads each line's own rate,
+        // and a select that omitted it would make every mixed-rate invoice fall
+        // back to the workspace default and total wrongly in the list view.
+        items: { select: { quantity: true, unitPrice: true, taxRate: true } },
         payments: { select: { amount: true, paymentDate: true } }
       }
     })
@@ -277,9 +286,10 @@ router.get('/:id', async (req, res) => {
   const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
 
+  // withTotals, not a bare `total`: with per-line tax rates the client and the
+  // PDF both need the subtotal/tax split and each line's own amount and tax.
   res.json({
-    ...invoice,
-    total: invoiceTotal(invoice, taxRate),
+    ...withTotals(invoice, taxRate),
     paid: paidSum(invoice.payments)
   });
 });
@@ -350,7 +360,10 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
               description: item.description,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
-              productId: item.productId || null
+              productId: item.productId || null,
+              // null, not 0: null is what "inherit the workspace default" means.
+              // Storing 0 would silently make every un-rated line zero-rated.
+              taxRate: item.taxRate ?? null
             }))
           },
           auditLogs: {
@@ -380,8 +393,7 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   });
 
   res.status(201).json({
-    ...invoice,
-    total: invoiceTotal(invoice, taxRate),
+    ...withTotals(invoice, taxRate),
     paid: 0
   });
 });
@@ -449,7 +461,10 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
             description: item.description,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            productId: item.productId || null
+            productId: item.productId || null,
+            // null, not 0: null is what "inherit the workspace default" means.
+            // Storing 0 would silently make every un-rated line zero-rated.
+            taxRate: item.taxRate ?? null
           }))
         },
         auditLogs: {
@@ -464,8 +479,7 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   ]);
 
   res.json({
-    ...updated,
-    total: invoiceTotal(updated, taxRate),
+    ...withTotals(updated, taxRate),
     // Editable invoices are draft/sent only (payments block edits), so paid is always 0 here.
     paid: 0
   });

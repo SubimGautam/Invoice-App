@@ -9,7 +9,9 @@ import { ESTIMATE_FILTERS, isExpired } from '../components/estimateStatus';
 import { formatMoney, symbolFor } from '../lib/currency';
 import { computeTotals, lineAmount } from '../lib/money';
 
-const EMPTY_ITEM = { description: '', quantity: '1', unitPrice: '0' };
+// taxRate '' = inherit the workspace default; an explicit 0 is a real choice
+// (a zero-rated line) and must stay distinguishable from blank.
+const EMPTY_ITEM = { description: '', quantity: '1', unitPrice: '0', taxRate: '' };
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -58,7 +60,20 @@ function EstimateModal({ clients, products, settings, initialValues, onClose, on
       setForm((f) => ({
         ...f,
         items: f.items.map((it, i) =>
-          i === idx ? { ...it, productId, description: it.description || product.name, unitPrice: String(product.price ?? it.unitPrice) } : it
+          i === idx
+            ? {
+                ...it,
+                productId,
+                description: it.description || product.name,
+                unitPrice: String(product.price ?? it.unitPrice),
+                // Snapshotted onto the line, so later catalogue edits cannot
+                // restate what was quoted. Only seeded when non-zero, because
+                // Product.taxRate's 0 is ambiguous between "zero-rated" and
+                // "no opinion" — and inheriting the default is what an un-rated
+                // line has always done.
+                taxRate: Number(product.taxRate) > 0 ? String(product.taxRate) : it.taxRate,
+              }
+            : it
         )
       }));
     }
@@ -99,7 +114,9 @@ function EstimateModal({ clients, products, settings, initialValues, onClose, on
           description: it.description,
           quantity: Number(it.quantity) || 0,
           unitPrice: Number(it.unitPrice) || 0,
-          productId: it.productId || undefined
+          productId: it.productId || undefined,
+          // null = inherit the workspace default; never 0 for a blank field.
+          taxRate: it.taxRate === '' || it.taxRate === undefined ? null : Number(it.taxRate)
         }))
     });
   }
@@ -184,7 +201,7 @@ function EstimateModal({ clients, products, settings, initialValues, onClose, on
 
           <div className="flex flex-col gap-2">
             {form.items.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-[1fr_80px_100px_36px] gap-2 items-center">
+              <div key={idx} className="grid grid-cols-[1fr_64px_96px_80px_36px] gap-2 items-center">
                 <div className="flex flex-col gap-1">
                   <input
                     type="text"
@@ -226,6 +243,18 @@ function EstimateModal({ clients, products, settings, initialValues, onClose, on
                   value={item.unitPrice}
                   onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
                   placeholder="Price"
+                  className={inputCls}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={item.taxRate ?? ''}
+                  onChange={(e) => updateItem(idx, 'taxRate', e.target.value)}
+                  placeholder={String(Number(settings?.defaultTaxRate) || 0)}
+                  title={`Blank uses the workspace default of ${Number(settings?.defaultTaxRate) || 0}%`}
+                  aria-label={`Tax rate for line ${idx + 1}, percent. Blank uses the workspace default of ${Number(settings?.defaultTaxRate) || 0}%`}
                   className={inputCls}
                 />
                 <button
@@ -366,6 +395,7 @@ export default function Estimates() {
         quantity: String(it.quantity),
         unitPrice: String(it.unitPrice),
         productId: it.productId || '',
+        taxRate: it.taxRate === null || it.taxRate === undefined ? '' : String(it.taxRate),
       }))
     });
     setModalOpen(true);

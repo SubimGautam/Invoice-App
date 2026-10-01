@@ -4,7 +4,7 @@ const prisma = require('../prisma');
 const { notifyWorkspace } = require('../lib/notify');
 const { sendEmail } = require('../lib/mailer');
 const { estimateResponseEmail } = require('../lib/emailTemplates');
-const { invoiceTotal, lineAmount } = require('../lib/money');
+const { computeTotals, withTotals } = require('../lib/money');
 
 // Public quote endpoint — INTENTIONALLY not behind requireAuth. A client reviews
 // and answers a quote without an account, authenticated only by the unguessable
@@ -33,7 +33,7 @@ async function loadByToken(token) {
 function toSummary(estimate) {
   const settings = estimate.workspace.settings;
   const taxRate = Number(settings?.defaultTaxRate || 0);
-  const total = invoiceTotal(estimate, taxRate);
+  const breakdown = computeTotals(estimate, taxRate);
   return {
     // Deliberately no internal id, userId, workspaceId, viewToken or decline
     // reason: this is served without authentication, so it carries only what
@@ -48,15 +48,24 @@ function toSummary(estimate) {
     validUntil: estimate.validUntil,
     notes: estimate.notes,
     discount: Number(estimate.discount || 0),
-    items: estimate.items.map((it) => ({
+    items: withTotals({ items: estimate.items }, taxRate).items.map((it) => ({
       description: it.description,
       quantity: Number(it.quantity),
       unitPrice: Number(it.unitPrice),
-      amount: lineAmount(it)
+      amount: it.amount,
+      taxAmount: it.taxAmount,
+      effectiveTaxRate: it.effectiveTaxRate
     })),
-    // Already cent-rounded by money.js; the old float re-rounding was redundant.
-    subtotal: invoiceTotal({ items: estimate.items, discount: 0 }, taxRate),
-    total,
+    // One computation drives the lines and the totals, so a quote whose client
+    // accepts it converts to an invoice with identical figures. Note this was
+    // previously subtotal = Σ amounts with the discount ignored, while the
+    // total had it applied — the quote's own two lines could disagree.
+    subtotal: breakdown.subtotal,
+    discount: breakdown.discount,
+    taxable: breakdown.taxable,
+    tax: breakdown.tax,
+    taxBreakdown: breakdown.taxByRate,
+    total: breakdown.total,
     acceptedAt: estimate.acceptedAt,
     declinedAt: estimate.declinedAt
   };
@@ -163,7 +172,9 @@ router.post('/:token/respond', async (req, res) => {
       estimateNumber: estimate.estimateNumber,
       decision,
       reason: reason?.trim() || '',
-      total: Math.round(invoiceTotal(estimate, Number(settings?.defaultTaxRate || 0)) * 100) / 100,
+      // computeTotals already rounds to cents; the old float re-rounding here
+      // was a 1.005 -> 1.00 trap on the figure emailed to a client.
+      total: computeTotals(estimate, Number(settings?.defaultTaxRate || 0)).total,
       currency: settings?.currency || 'NPR',
       estimateId: estimate.id,
       declined: decision === 'declined'
