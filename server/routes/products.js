@@ -3,6 +3,7 @@ const { z } = require('zod');
 const prisma = require('../prisma');
 const requireAuth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
+const { Decimal, toDecimal, money } = require('../lib/money');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -33,21 +34,31 @@ router.get('/', async (req, res) => {
   const items = await prisma.invoiceItem.findMany({
     where: {
       productId: { in: products.map((p) => p.id) },
-      invoice: { workspaceId: req.workspaceId, status: { not: 'draft' }, issueDate: { gte: startOfYear } }
+      // `not: 'draft'` would also match a VOIDED invoice, counting revenue for
+      // work that was cancelled. Void has to be excluded explicitly.
+      invoice: {
+        workspaceId: req.workspaceId,
+        status: { notIn: ['draft', 'void'] },
+        issueDate: { gte: startOfYear }
+      }
     },
     select: { productId: true, quantity: true, unitPrice: true }
   });
 
+  // Accumulate in Decimal. This is a running total over many line items per
+  // product, which is precisely the shape that drifts when summed as floats,
+  // and `Math.round(x * 100) / 100` at the end rounds 1.005 down to 1.00.
   const totals = {};
   const counts = {};
   for (const it of items) {
-    totals[it.productId] = (totals[it.productId] || 0) + Number(it.quantity) * Number(it.unitPrice);
+    const prev = totals[it.productId] || new Decimal(0);
+    totals[it.productId] = prev.add(toDecimal(it.quantity).mul(toDecimal(it.unitPrice)));
     counts[it.productId] = (counts[it.productId] || 0) + 1;
   }
 
   const withRevenue = products.map((p) => ({
     ...p,
-    invoicedYTD: Math.round((totals[p.id] || 0) * 100) / 100,
+    invoicedYTD: money(totals[p.id] || new Decimal(0)),
     invoiceCount: counts[p.id] || 0
   }));
 

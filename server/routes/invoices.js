@@ -35,7 +35,7 @@ const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partial
 // Shared module — see lib/money.js. Every dollar figure in the app is derived
 // from line items + discount (there's no stored "total" column), so all money
 // math lives in one place to keep the client and the API consistent.
-const { invoiceTotal, paidSum, MONEY_EPSILON } = require('../lib/money');
+const { invoiceTotal, paidSum, itemsSubtotal, MONEY_EPSILON } = require('../lib/money');
 const { amount } = require('../lib/emailTemplates');
 
 // GET /api/invoices — list invoices.
@@ -320,7 +320,7 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const taxRate = Number(settings.defaultTaxRate || 0);
 
   // A discount bigger than the goods themselves doesn't make sense.
-  const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
+  const subtotal = itemsSubtotal(items);
   if ((discount ?? 0) > subtotal) {
     return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
   }
@@ -422,7 +422,7 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   const settings = await prisma.workspaceSettings.upsert({ where: { workspaceId: req.workspaceId }, update: {}, create: { workspaceId: req.workspaceId } });
   const taxRate = Number(settings.defaultTaxRate || 0);
 
-  const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
+  const subtotal = itemsSubtotal(items);
   if ((discount ?? 0) > subtotal) {
     return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
   }

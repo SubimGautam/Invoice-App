@@ -9,7 +9,7 @@ const generateInvoiceNumber = require('../lib/invoicenumber');
 const { generatePaymentToken } = require('../lib/paymenttoken');
 // Same money math as invoices — lib/money.js only needs { items, discount }, so
 // an estimate totals with identical code (discount before tax).
-const { invoiceTotal } = require('../lib/money');
+const { invoiceTotal, itemsSubtotal } = require('../lib/money');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -132,7 +132,7 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
     return res.status(400).json({ error: 'Valid-until date cannot be before the issue date' });
   }
 
-  const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
+  const subtotal = itemsSubtotal(items);
   if ((discount ?? 0) > subtotal) {
     return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
   }
@@ -210,7 +210,7 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
     return res.status(400).json({ error: 'Valid-until date cannot be before the issue date' });
   }
 
-  const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
+  const subtotal = itemsSubtotal(items);
   if ((discount ?? 0) > subtotal) {
     return res.status(400).json({ error: 'Discount cannot exceed the subtotal' });
   }

@@ -4,7 +4,7 @@ const prisma = require('../prisma');
 const { notifyWorkspace } = require('../lib/notify');
 const { sendEmail } = require('../lib/mailer');
 const { estimateResponseEmail } = require('../lib/emailTemplates');
-const { invoiceTotal } = require('../lib/money');
+const { invoiceTotal, lineAmount } = require('../lib/money');
 
 // Public quote endpoint — INTENTIONALLY not behind requireAuth. A client reviews
 // and answers a quote without an account, authenticated only by the unguessable
@@ -52,10 +52,11 @@ function toSummary(estimate) {
       description: it.description,
       quantity: Number(it.quantity),
       unitPrice: Number(it.unitPrice),
-      amount: Math.round(Number(it.quantity) * Number(it.unitPrice) * 100) / 100
+      amount: lineAmount(it)
     })),
-    subtotal: Math.round(invoiceTotal({ items: estimate.items, discount: 0 }, taxRate) * 100) / 100,
-    total: Math.round(total * 100) / 100,
+    // Already cent-rounded by money.js; the old float re-rounding was redundant.
+    subtotal: invoiceTotal({ items: estimate.items, discount: 0 }, taxRate),
+    total,
     acceptedAt: estimate.acceptedAt,
     declinedAt: estimate.declinedAt
   };

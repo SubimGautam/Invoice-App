@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const prisma = require('../prisma');
 const { notifyWorkspace } = require('../lib/notify');
 const { sendEmail } = require('../lib/mailer');
-const { invoiceTotal, paidSum, MONEY_EPSILON } = require('../lib/money');
+const { invoiceTotal, paidSum, lineAmount, moneyNumber, MONEY_EPSILON } = require('../lib/money');
 const { paymentReceiptEmail } = require('../lib/emailTemplates');
 const esewa = require('../lib/esewa');
 
@@ -92,10 +92,13 @@ function toSummary(invoice) {
       description: it.description,
       quantity: Number(it.quantity),
       unitPrice: Number(it.unitPrice),
-      amount: Math.round(Number(it.quantity) * Number(it.unitPrice) * 100) / 100
+      amount: lineAmount(it)
     })),
-    total: Math.round(total * 100) / 100,
-    paid: Math.round(paid * 100) / 100,
+    // money.js already returns cent-rounded numbers; the old
+    // `Math.round(x * 100) / 100` here was redundant float rounding that is
+    // itself a 1.005 -> 1.00 trap.
+    total,
+    paid,
     remaining,
     paidAt: invoice.paidAt
   };
@@ -106,11 +109,7 @@ function remainingOf(invoice) {
   const taxRate = Number(settings?.defaultTaxRate || 0);
   const total = invoiceTotal(invoice, taxRate);
   const paid = paidSum(invoice.payments);
-  return {
-    total: Math.round(total * 100) / 100,
-    paid: Math.round(paid * 100) / 100,
-    remaining: Math.round(Math.max(0, total - paid) * 100) / 100
-  };
+  return { total, paid, remaining: Math.max(0, total - paid) };
 }
 
 // Record a payment and flip the invoice — shared by every path (gateway,
@@ -319,7 +318,11 @@ router.post('/:token/initiate', async (req, res) => {
   if (remaining <= MONEY_EPSILON) {
     return res.status(400).json({ error: 'This invoice is already fully paid.' });
   }
-  const amount = Math.round(parsed.data.amount * 100) / 100;
+  // Normalise the requested amount through Decimal half-up rounding. A gateway
+  // callback or a typed value like 1.005 must not become 1.00: the recorded
+  // payment has to equal what was actually charged, or the invoice stops
+  // reconciling against the gateway statement.
+  const amount = moneyNumber(parsed.data.amount);
   if (amount > remaining + MONEY_EPSILON) {
     return res.status(400).json({ error: `This is more than the remaining balance of ${remaining.toFixed(2)}.` });
   }
