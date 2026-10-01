@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
 import { ChevronRightIcon } from '../components/Icons';
+import { computeTotals, lineAmount } from '../lib/money';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
@@ -102,20 +103,14 @@ export default function EditInvoice() {
     setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
   }
 
-  const rowTotals = useMemo(
-    () => items.map((item) => (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)),
-    [items]
+  const rowTotals = useMemo(() => items.map((item) => lineAmount(item)), [items]);
+  // Shared exact money math (lib/money.js), same as Newinvoice and the server:
+  // discount is clamped to the subtotal, then tax is applied to the discounted
+  // amount, all in integer cents.
+  const { subtotal, discount: discountValue, tax, total } = useMemo(
+    () => computeTotals({ items, discount }, Number(taxRate) || 0),
+    [items, discount, taxRate]
   );
-  const subtotal = useMemo(() => rowTotals.reduce((sum, n) => sum + n, 0), [rowTotals]);
-  // Same money math as Newinvoice: discount is clamped to the subtotal, then
-  // tax is applied to the discounted amount. Mirrors server/lib/money.js.
-  const discountValue = useMemo(
-    () => Math.min(Math.max(Number(discount) || 0, 0), subtotal),
-    [discount, subtotal]
-  );
-  const taxable = subtotal - discountValue;
-  const tax = taxable * ((Number(taxRate) || 0) / 100);
-  const total = taxable + tax;
 
   async function handleSubmit(e) {
     e.preventDefault();

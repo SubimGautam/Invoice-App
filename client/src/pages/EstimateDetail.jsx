@@ -7,6 +7,7 @@ import { ChevronRightIcon, CheckCircleIcon, XCircleIcon, ConvertIcon, LinkIcon, 
 import EstimateStatusPill from '../components/EstimateStatusPill';
 import { isExpired, estimateStatusLabel } from '../components/estimateStatus';
 import { formatMoney } from '../lib/currency';
+import { computeTotals, lineAmount } from '../lib/money';
 
 function fmtDate(v) {
   if (!v) return '—';
@@ -179,11 +180,10 @@ export default function EstimateDetail() {
 
   const currency = settings?.currency;
   const taxRate = Number(settings?.defaultTaxRate || 0);
-  const subtotal = estimate.items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0);
-  const discount = Math.min(Math.max(Number(estimate.discount || 0), 0), subtotal);
-  const taxable = subtotal - discount;
-  const tax = taxable * (taxRate / 100);
-  const total = taxable + tax;
+  // Exact money math, matching server/lib/money.js and the invoice pages. This
+  // is a quote a client accepts and may convert to an invoice, so the figure
+  // has to be the same cents the server computes from the same line items.
+  const { subtotal, discount, tax, total } = computeTotals(estimate, taxRate);
   const locked = estimate.status === 'converted';
   const expired = estimate.status === 'sent' && isExpired(estimate);
   // Converting is only meaningful once the client has the quote. A draft has
@@ -319,7 +319,7 @@ export default function EstimateDetail() {
                         <td className="py-3 text-right font-mono text-[#464555]">{String(it.quantity)}</td>
                         <td className="py-3 text-right font-mono text-[#464555]">{formatMoney(it.unitPrice, currency)}</td>
                         <td className="py-3 text-right font-mono text-[#131b2e] font-semibold">
-                          {formatMoney(Number(it.quantity) * Number(it.unitPrice), currency)}
+                          {formatMoney(lineAmount(it), currency)}
                         </td>
                       </tr>
                     ))}

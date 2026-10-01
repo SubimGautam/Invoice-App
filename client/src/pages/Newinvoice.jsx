@@ -3,6 +3,7 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { api } from '../api';
 import { ChevronRightIcon } from '../components/Icons';
+import { computeTotals, lineAmount } from '../lib/money';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
@@ -32,17 +33,16 @@ function InvoicePreview({ profile, settings, client, items, notes, issueDate, du
     `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
   const rows = items
-    .map((item) => ({
-      ...item,
-      amount: (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
-    }))
+    .map((item) => ({ ...item, amount: lineAmount(item) }))
     .filter((item) => item.description);
 
-  const subtotal = rows.reduce((s, r) => s + r.amount, 0);
-  const discount = Math.min(Math.max(Number(settings.discount || 0), 0), subtotal);
-  const taxable = subtotal - discount;
-  const tax = taxable * ((Number(settings.taxRate) || 0) / 100);
-  const total = taxable + tax;
+  // Exact cents arithmetic (lib/money), so the preview total the user is typing
+  // towards is the same cents the server will compute. The old float math could
+  // show 113.3729 here and 113.37 on the saved invoice.
+  const { subtotal, discount, tax, total } = computeTotals(
+    { items: rows, discount: settings.discount },
+    Number(settings.taxRate) || 0
+  );
 
   const addressLines = [
     [profile?.street, [profile?.city, profile?.state].filter(Boolean).join(', ')].filter(Boolean).join(', '),
@@ -280,18 +280,14 @@ export default function NewInvoice() {
     setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
   }
 
-  const rowTotals = useMemo(
-    () => items.map((item) => (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)),
-    [items]
+  const rowTotals = useMemo(() => items.map((item) => lineAmount(item)), [items]);
+  // Shared exact money math. This is the running total the user types towards,
+  // so it must be identical to what the server will compute from the same
+  // inputs — the invoice they save has to total what they were shown.
+  const { subtotal, discount: discountValue, tax, total } = useMemo(
+    () => computeTotals({ items, discount }, Number(taxRate) || 0),
+    [items, discount, taxRate]
   );
-  const subtotal = useMemo(() => rowTotals.reduce((sum, n) => sum + n, 0), [rowTotals]);
-  const discountValue = useMemo(
-    () => Math.min(Math.max(Number(discount) || 0, 0), subtotal),
-    [discount, subtotal]
-  );
-  const taxable = subtotal - discountValue;
-  const tax = taxable * ((Number(taxRate) || 0) / 100);
-  const total = taxable + tax;
 
   async function handleSubmit(e) {
     e.preventDefault();

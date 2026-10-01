@@ -4,6 +4,7 @@ import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { formatMoney, compactMoney } from '../lib/currency';
+import { itemsSubtotal } from '../lib/money';
 import StatusPill from '../components/StatusPill';
 import { computeDisplayStatus, displayStatusLabel } from '../components/status';
 
@@ -28,9 +29,10 @@ import {
 } from '../components/Icons';
 
 // Fallback when the server didn't attach a total (shouldn't happen — the list
-// endpoint computes real totals, but this keeps the render safe).
+// endpoint computes real totals, but this keeps the render safe). Exact cents
+// arithmetic via lib/money, so this can never disagree with the server's total.
 function computeTotal(invoice) {
-  return invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+  return itemsSubtotal(invoice);
 }
 
 function initials(name) {

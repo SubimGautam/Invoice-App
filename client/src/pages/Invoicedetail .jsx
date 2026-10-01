@@ -4,6 +4,7 @@ import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { STATUS_STYLES, computeDisplayStatus } from '../components/status';
+import { computeTotals, toCents, fromCents, moneyNumber, lineAmount } from '../lib/money';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
@@ -50,7 +51,10 @@ function todayISO() {
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Online Payment', 'Other'];
 
 function PaymentModal({ remaining, currencySymbol, saving, error, onClose, onSubmit }) {
-  const [amount, setAmount] = useState(String(Math.max(0, Math.round(remaining * 100) / 100)));
+  // Prefill with the exact outstanding balance. The old `Math.round(x*100)/100`
+  // is a float rounding trap (1.005 → 1.00), which would prefill a payment
+  // amount a cent off what the client actually owes.
+  const [amount, setAmount] = useState(String(moneyNumber(Math.max(0, remaining))));
   const [method, setMethod] = useState('Bank Transfer');
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [reference, setReference] = useState('');
@@ -221,17 +225,28 @@ export default function InvoiceDetail() {
     return `${currencySymbol}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   }
 
+  // Exact money math, shared with every other page and matching the server
+  // (lib/money.js works in integer cents; server/lib/money.js in Decimal). This
+  // is the figure a client reads off the screen and the PDF, so it must be the
+  // same cents the server will actually charge — the previous inline float math
+  // could print a tax line of 13.0429.
   const totals = useMemo(() => {
     if (!invoice) return { subtotal: 0, discount: 0, taxable: 0, tax: 0, total: 0, taxRate: 0, paid: 0, remaining: 0 };
-    const subtotal = invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
     const taxRate = Number(settings?.defaultTaxRate || 0);
-    // Discount is applied before tax, matching the server's money math.
-    const discount = Math.min(Math.max(Number(invoice.discount || 0), 0), subtotal);
-    const taxable = subtotal - discount;
-    const tax = taxable * (taxRate / 100);
-    const total = Number(invoice.total ?? taxable + tax);
-    const paid = Number(invoice.paid || 0);
-    return { subtotal, discount, taxable, tax, total, taxRate, paid, remaining: Math.max(0, total - paid) };
+    const { subtotal, discount, taxable, tax } = computeTotals(invoice, taxRate);
+    // Prefer the server's authoritative total; fall back to our own exact sum.
+    const total = invoice.total != null ? moneyNumber(invoice.total) : fromCents(toCents(taxable) + toCents(tax));
+    const paid = moneyNumber(invoice.paid ?? 0);
+    return {
+      subtotal,
+      discount,
+      taxable,
+      tax,
+      total,
+      taxRate,
+      paid,
+      remaining: Math.max(0, fromCents(toCents(total) - toCents(paid))),
+    };
   }, [invoice, settings]);
 
   async function handleStatusChange(newStatus) {
@@ -523,7 +538,7 @@ export default function InvoiceDetail() {
           item.description,
           Number(item.quantity).toFixed(2),
           formatMoney(item.unitPrice),
-          formatMoney(Number(item.quantity) * Number(item.unitPrice)),
+          formatMoney(lineAmount(item)),
         ]),
       });
       y = doc.lastAutoTable.finalY + 8;
@@ -899,7 +914,7 @@ export default function InvoiceDetail() {
                         <td className="px-4 py-3 text-sm text-[#131b2e] text-right">{Number(item.quantity).toFixed(2)}</td>
                         <td className="px-4 py-3 text-sm text-[#131b2e] text-right">{formatMoney(item.unitPrice)}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-[#131b2e] text-right">
-                          {formatMoney(Number(item.quantity) * Number(item.unitPrice))}
+                          {formatMoney(lineAmount(item))}
                         </td>
                       </tr>
                     ))}

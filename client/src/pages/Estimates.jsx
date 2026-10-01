@@ -7,6 +7,7 @@ import { ChevronRightIcon, PlusIcon, ConvertIcon } from '../components/Icons';
 import EstimateStatusPill from '../components/EstimateStatusPill';
 import { ESTIMATE_FILTERS, isExpired } from '../components/estimateStatus';
 import { formatMoney, symbolFor } from '../lib/currency';
+import { computeTotals, lineAmount } from '../lib/money';
 
 const EMPTY_ITEM = { description: '', quantity: '1', unitPrice: '0' };
 
@@ -74,12 +75,12 @@ function EstimateModal({ clients, products, settings, initialValues, onClose, on
   const preview = useMemo(() => {
     const sym = symbolFor(settings?.currency);
     const rows = form.items
-      .map((it) => ({ ...it, amount: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) }))
+      .map((it) => ({ ...it, amount: lineAmount(it) }))
       .filter((it) => it.description.trim());
-    const subtotal = rows.reduce((s, r) => s + r.amount, 0);
-    const discount = Math.min(Math.max(Number(form.discount) || 0, 0), subtotal);
-    const taxRate = Number(settings?.defaultTaxRate || 0);
-    const total = (subtotal - discount) * (1 + taxRate / 100);
+    // Shared exact money math: discount before tax, cents-accurate, so the
+    // quote value shown while editing is the value the server will store and
+    // later convert into an invoice.
+    const { total } = computeTotals({ items: rows, discount: form.discount }, Number(settings?.defaultTaxRate) || 0);
     return { sym, total };
   }, [form.items, form.discount, settings]);
 

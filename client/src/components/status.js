@@ -4,6 +4,7 @@
 // "Overdue" isn't a stored status — it's a sent/partially-paid invoice whose
 // due date has passed. "Partially Paid" is derived from recorded payments vs
 // the invoice total (both attached by the server).
+import { isSettled } from '../lib/money';
 export const STATUS_STYLES = {
   paid: { dot: '#006c49', text: '#006c49', bg: 'rgba(111,251,190,0.4)', label: 'Paid' },
   pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Sent' },
@@ -24,7 +25,11 @@ export function computeDisplayStatus(invoice) {
   // would relabel a cancellation as "Paid" or "Overdue" purely because of
   // leftover payments or a past due date.
   if (invoice.status === 'void') return 'void';
-  if (invoice.status === 'paid' || (total > 0 && paid >= total - 0.001)) return 'paid';
+  // isSettled compares in integer cents with a half-cent tolerance, replacing
+  // an inline `paid >= total - 0.001`. That 0.001 was a float band too wide to
+  // be meaningful and too tight to be a real cent boundary; a client who paid
+  // 1.5 cents short could be labelled "Paid".
+  if (invoice.status === 'paid' || (total > 0 && isSettled(paid, total))) return 'paid';
   if (invoice.status === 'draft') return 'draft';
   if (new Date(invoice.dueDate) < new Date()) return 'overdue';
   if (paid > 0) return 'partiallyPaid';
