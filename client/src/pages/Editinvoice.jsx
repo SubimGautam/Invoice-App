@@ -16,7 +16,8 @@ export default function EditInvoice() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [notEditable, setNotEditable] = useState(false);
+  const [notEditable, setNotEditable] = useState('');
+  const [lockReason, setLockReason] = useState('');
 
   const [clients, setClients] = useState([]);
   const [currency, setCurrency] = useState('NPR');
@@ -49,8 +50,14 @@ export default function EditInvoice() {
         api.getSettings().catch(() => null),
       ]);
 
-      if (invoice.status === 'paid') {
-        setNotEditable(true);
+      // Mirror the server's edit lock EXACTLY, or the user fills in the whole
+      // form and only discovers on submit that it was never allowed. The server
+      // refuses `paid`, `partially_paid` (money is attached) and `void` (a
+      // permanent cancellation record) — checking only `paid` used to let a
+      // partially-paid invoice be edited to the point of a raw 400.
+      if (['paid', 'partially_paid', 'void'].includes(invoice.status)) {
+        setNotEditable(invoice.status);
+        setLockReason(invoice.voidReason || '');
         return;
       }
 
@@ -163,11 +170,31 @@ export default function EditInvoice() {
   }
 
   if (notEditable) {
+    const copy = {
+      paid: {
+        title: 'This invoice has been paid',
+        body: 'Paid invoices can\u2019t be edited. To correct one, record a refund or void the invoice and issue a replacement.',
+      },
+      partially_paid: {
+        title: 'This invoice has a payment against it',
+        body: 'Once money is recorded, the invoice is locked so its total can\u2019t drift away from what was actually paid. Refund the payment, or void this invoice and create a corrected one.',
+      },
+      void: {
+        title: 'This invoice was voided',
+        body: 'A voided invoice is a permanent record of a cancellation and can\u2019t be edited. Create a new invoice for any further work.',
+      },
+    }[notEditable];
+
     return (
       <DashboardLayout>
         <div className="py-10 text-center">
-          <p className="text-sm text-[#131b2e] font-semibold mb-1">This invoice has been paid</p>
-          <p className="text-sm text-[#464555] mb-4">Paid invoices can't be edited.</p>
+          <p className="text-sm text-[#131b2e] font-semibold mb-1">{copy.title}</p>
+          <p className="text-sm text-[#464555] mb-4">{copy.body}</p>
+          {notEditable === 'void' && lockReason && (
+            <p className="text-sm text-[#464555] mb-4">
+              <span className="font-medium text-[#131b2e]">Reason:</span> {lockReason}
+            </p>
+          )}
           <Link to={`/invoices/${id}`} className="text-sm font-semibold text-[#3525cd] hover:underline">
             Back to Invoice
           </Link>

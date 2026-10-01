@@ -83,7 +83,10 @@ router.get('/', async (req, res) => {
   // --- Period-bound metrics ---
   function metricsForRange(start, end) {
     const inRange = allInvoices.filter(
-      (inv) => inv.status !== 'draft' && new Date(inv.issueDate) >= start && new Date(inv.issueDate) < end
+      // 'void' is excluded alongside 'draft': a voided invoice is not billed
+      // revenue, it was cancelled. Including it would inflate billed total AND
+      // the denominator of the collection rate.
+      (inv) => inv.status !== 'draft' && inv.status !== 'void' && new Date(inv.issueDate) >= start && new Date(inv.issueDate) < end
     );
     const billedTotal = inRange.reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
     const paidInRange = inRange.filter((inv) => inv.status === 'paid');
@@ -107,7 +110,7 @@ router.get('/', async (req, res) => {
     const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
     const billed = allInvoices
-      .filter((inv) => inv.status !== 'draft' && new Date(inv.issueDate) >= mStart && new Date(inv.issueDate) < mEnd)
+      .filter((inv) => inv.status !== 'draft' && inv.status !== 'void' && new Date(inv.issueDate) >= mStart && new Date(inv.issueDate) < mEnd)
       .reduce((s, inv) => s + invoiceTotal(inv, taxRate), 0);
     const collected = allInvoices
       .filter((inv) => inv.status === 'paid' && inv.paidAt && new Date(inv.paidAt) >= mStart && new Date(inv.paidAt) < mEnd)
@@ -118,7 +121,9 @@ router.get('/', async (req, res) => {
   // --- Top clients within the selected period ---
   const clientMap = new Map();
   for (const inv of allInvoices) {
-    if (inv.status === 'draft') continue;
+    // A voided invoice is a cancellation, not a sale to this client — counting
+    // it would rank a client as top-billed on work that was written off.
+    if (inv.status === 'draft' || inv.status === 'void') continue;
     if (new Date(inv.issueDate) < periodStart || new Date(inv.issueDate) >= periodEnd) continue;
     const key = inv.client.id;
     if (!clientMap.has(key)) {

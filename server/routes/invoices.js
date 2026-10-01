@@ -29,17 +29,22 @@ const invoiceSchema = z.object({
 const generateInvoiceNumber = require('../lib/invoicenumber');
 const { generatePaymentToken } = require('../lib/paymenttoken');
 
-const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partially Paid', paid: 'Paid' };
+const STATUS_LABEL = { draft: 'Draft', pending: 'Sent', partially_paid: 'Partially Paid', paid: 'Paid', void: 'Void' };
 
 // --- Money helpers ----------------------------------------------------------
 // Shared module — see lib/money.js. Every dollar figure in the app is derived
 // from line items + discount (there's no stored "total" column), so all money
 // math lives in one place to keep the client and the API consistent.
 const { invoiceTotal, paidSum, MONEY_EPSILON } = require('../lib/money');
+const { amount } = require('../lib/emailTemplates');
 
-// GET /api/invoices — list invoices, optional ?status=draft|pending|partially_paid|paid|overdue filter
+// GET /api/invoices — list invoices.
+//   ?status=draft|pending|partially_paid|paid|void|overdue
+//   ?q=<text>   searches the WHOLE workspace (invoice number, client name, client
+//               email, and line-item description), not just the current page.
 router.get('/', async (req, res) => {
   const { status } = req.query;
+  const q = (req.query.q || '').trim();
 
   const page = Math.max(parseInt(req.query.page) || 1, 1);
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
@@ -47,18 +52,33 @@ router.get('/', async (req, res) => {
 
   const where = { workspaceId: req.workspaceId };
   if (status) {
-    const validStatuses = ['draft', 'pending', 'partially_paid', 'paid', 'overdue'];
+    const validStatuses = ['draft', 'pending', 'partially_paid', 'paid', 'void', 'overdue'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status filter' });
     }
     if (status === 'overdue') {
       // Overdue = any OPEN invoice past its due date (pending OR partially
-      // paid) — matches the KPI count on the dashboard.
+      // paid) — matches the KPI count on the dashboard. Void is deliberately
+      // absent: a cancelled invoice is not overdue, it never happened.
       where.status = { in: ['pending', 'partially_paid'] };
       where.dueDate = { lt: new Date() };
     } else {
       where.status = status;
     }
+  }
+  if (q) {
+    // Case-insensitive "contains" across every place someone might look for an
+    // invoice. Line-item description matters most in practice ("who did I
+    // invoice for the website?"), which is why this can't stay a client-side
+    // filter over the current page. Every relation uses the `is:` form so the
+    // to-one (client) and to-many (items) clauses compose in one OR.
+    where.OR = [
+      { invoiceNumber: { contains: q, mode: 'insensitive' } },
+      { client: { is: { name: { contains: q, mode: 'insensitive' } } } },
+      { client: { is: { email: { contains: q, mode: 'insensitive' } } } },
+      { notes: { contains: q, mode: 'insensitive' } },
+      { items: { some: { description: { contains: q, mode: 'insensitive' } } } }
+    ];
   }
 
   const [invoices, totalCount, settings] = await Promise.all([
@@ -118,7 +138,7 @@ router.get('/stats', async (req, res) => {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const counts = { all: 0, draft: 0, pending: 0, partiallyPaid: 0, paid: 0, overdue: 0 };
+  const counts = { all: 0, draft: 0, pending: 0, partiallyPaid: 0, paid: 0, overdue: 0, void: 0 };
   const sums = { totalOutstanding: 0, paidThisMonth: 0, overdueTotal: 0, draftsTotal: 0 };
 
   for (const inv of invoices) {
@@ -127,11 +147,19 @@ router.get('/stats', async (req, res) => {
     const remaining = Math.max(0, total - paid);
     const isPaid = inv.status === 'paid' || (total > 0 && paid >= total - MONEY_EPSILON);
     const isDraft = inv.status === 'draft';
-    const isOverdue = !isPaid && !isDraft && new Date(inv.dueDate) < now;
+    const isVoid = inv.status === 'void';
+    const isOverdue = !isPaid && !isDraft && !isVoid && new Date(inv.dueDate) < now;
 
     counts.all++;
 
-    if (isDraft) {
+    if (isVoid) {
+      // A cancelled invoice contributes to NOTHING below — not outstanding,
+      // not overdue, not drafts, and (see the loop below) not paid-this-month.
+      // It's the single most important branch here: without it a voided
+      // invoice's remaining balance would sit in "total outstanding" as money
+      // the business is still owed, which is exactly backwards.
+      counts.void++;
+    } else if (isDraft) {
       counts.draft++;
       sums.draftsTotal += total;
     } else if (isPaid) {
@@ -152,6 +180,11 @@ router.get('/stats', async (req, res) => {
 
     // "Paid this month" comes from actual payment records, not from invoice
     // status — an invoice paid at any point still surfaces the payment date.
+    // Voided invoices are skipped: void means "this transaction didn't happen",
+    // and letting its payments inflate cash-in would contradict every other
+    // number on the page. Voiding an invoice that had money against it is a
+    // prompt to record a refund, which shows up as its own negative entry.
+    if (isVoid) continue;
     for (const p of inv.payments) {
       if (new Date(p.paymentDate) >= monthStart) {
         sums.paidThisMonth += Number(p.amount);
@@ -372,6 +405,13 @@ router.put('/:id', requireRole('owner', 'admin', 'staff'), async (req, res) => {
     return res.status(400).json({ error: 'Invoices with recorded payments cannot be edited' });
   }
 
+  // A voided invoice is a permanent, auditable record of a cancellation. Letting
+  // it be edited back into a live invoice would let the reason and the who/when
+  // be laundered away, so it's terminal.
+  if (existing.status === 'void') {
+    return res.status(400).json({ error: 'A voided invoice cannot be edited' });
+  }
+
   const { clientId, issueDate, dueDate, notes, status, discount, items } = parsed.data;
 
   const client = await prisma.client.findUnique({ where: { id: clientId } });
@@ -448,11 +488,15 @@ router.patch('/:id/status', requireRole('owner', 'admin', 'staff'), async (req, 
   //   draft          -> pending      (send the invoice)
   //   pending        -> paid         (full payment recorded)
   //   partially_paid -> paid         (final payment recorded)
+  // `void` is absent on purpose: cancelling is a separate, deliberate action
+  // (POST /:id/void) because it needs a reason and is not a status flip you
+  // can accidentally perform while editing.
   const allowedTransitions = {
     draft: ['pending'],
     pending: ['paid'],
     partially_paid: ['paid'],
-    paid: []
+    paid: [],
+    void: []
   };
 
   const invoice = await prisma.invoice.findUnique({
@@ -525,10 +569,87 @@ router.patch('/:id/status', requireRole('owner', 'admin', 'staff'), async (req, 
 });
 
 // DELETE /api/invoices/:id (owner/admin only — destructive)
-router.delete('/:id', requireRole('owner', 'admin'), async (req, res) => {
-  const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+// True when an invoice has left the building and its row is financial history:
+// it was sent to a client, or money was recorded against it. These may only be
+// VOIDED, never deleted.
+function isDestructiveToRemove(invoice, payments) {
+  return invoice.status !== 'draft' || (payments || []).length > 0 || Boolean(invoice.sentAt);
+}
+
+// POST /api/invoices/:id/void — cancel an invoice without destroying it.
+// Keeps the row, its line items, its payments and its audit trail, and removes
+// it from every total (reports exclude `void`; aging/receivables only ever
+// count pending + partially_paid). (admin+)
+router.post('/:id/void', requireRole('owner', 'admin'), async (req, res) => {
+  const voidSchema = z.object({
+    reason: z.string().trim().min(3, 'Give a short reason so the record makes sense later').max(500)
+  });
+  const parsed = voidSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    include: { payments: { select: { amount: true } } }
+  });
   if (!invoice || invoice.workspaceId !== req.workspaceId) {
     return res.status(404).json({ error: 'Invoice not found' });
+  }
+  if (invoice.status === 'void') {
+    return res.status(400).json({ error: 'This invoice is already void' });
+  }
+
+  const paid = paidSum(invoice.payments);
+  const note = paid > 0
+    ? ` (${amount(paid)} was already recorded against it — the payment record is kept)`
+    : '';
+
+  const updated = await prisma.invoice.update({
+    where: { id: invoice.id },
+    data: {
+      status: 'void',
+      voidedAt: new Date(),
+      voidedByUserId: req.userId,
+      voidReason: parsed.data.reason,
+      // Kill the public pay link: a voided invoice must never be payable.
+      paymentToken: null,
+      auditLogs: {
+        create: {
+          type: 'voided',
+          message: `Voided — ${parsed.data.reason}`
+        }
+      }
+    }
+  });
+
+  await notifyWorkspace({
+    workspaceId: req.workspaceId,
+    excludeUserId: req.userId,
+    type: 'invoice_voided',
+    title: 'Invoice voided',
+    message: `${invoice.invoiceNumber} was cancelled — ${parsed.data.reason}`,
+    invoiceId: invoice.id
+  });
+
+  res.json({ ...updated, note: `Voided instead of deleted${note}` });
+});
+
+// DELETE /api/invoices/:id — only a never-sent draft with no payments can be
+// truly deleted. Anything else is financial history, so the request is refused
+// with a pointer at the void action rather than silently destroying records.
+router.delete('/:id', requireRole('owner', 'admin'), async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    include: { payments: { select: { id: true } } }
+  });
+  if (!invoice || invoice.workspaceId !== req.workspaceId) {
+    return res.status(404).json({ error: 'Invoice not found' });
+  }
+
+  if (isDestructiveToRemove(invoice, invoice.payments)) {
+    return res.status(409).json({
+      error: `${invoice.invoiceNumber} has already been sent, so deleting it would destroy its payment and audit history. Void it instead — that keeps the record but removes it from your totals.`,
+      canVoid: true
+    });
   }
 
   await prisma.invoice.delete({ where: { id: invoice.id } });

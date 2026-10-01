@@ -54,7 +54,7 @@ function luhnValid(number) {
 
 async function loadByToken(token) {
   if (!TOKEN_RE.test(token)) return null;
-  return prisma.invoice.findUnique({
+  const invoice = await prisma.invoice.findUnique({
     where: { paymentToken: token },
     include: {
       client: true,
@@ -63,6 +63,12 @@ async function loadByToken(token) {
       workspace: { include: { settings: true, businessProfile: true } }
     }
   });
+  // Defence in depth: voiding nulls the token, so a voided invoice normally
+  // can't be found here at all. But a client may hold an already-emailed link
+  // from before the void, and money must never be taken for a cancelled
+  // invoice. Treating void as "not found" gives the same 404 as a bad token.
+  if (!invoice || invoice.status === 'void') return null;
+  return invoice;
 }
 
 function toSummary(invoice) {

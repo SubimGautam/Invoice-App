@@ -83,9 +83,10 @@ export const api = {
   // --- Invoices ---
   getInvoiceStats: () => request('/api/invoices/stats'),
   getTimeline: () => request('/api/invoices/timeline'),
-  getInvoices: (page = 1, limit = 20, status) => {
+  getInvoices: (page = 1, limit = 20, status, q) => {
     const params = new URLSearchParams({ page, limit });
     if (status) params.set('status', status);
+    if (q) params.set('q', q);
     return request(`/api/invoices?${params}`);
   },
   getInvoice: (id) => request(`/api/invoices/${id}`),
@@ -97,6 +98,11 @@ export const api = {
     request(`/api/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   deleteInvoice: (id) =>
     request(`/api/invoices/${id}`, { method: 'DELETE' }),
+  // Cancel an invoice while KEEPING it: the row, its line items, its payments
+  // and its audit trail all survive, but it drops out of every total. This is
+  // what "delete" becomes once an invoice has been sent or paid.
+  voidInvoice: (id, reason) =>
+    request(`/api/invoices/${id}/void`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   // --- Estimates (quotes) ---
   getEstimates: (page = 1, limit = 20, status, q) => {

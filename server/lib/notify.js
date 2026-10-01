@@ -8,6 +8,10 @@ const TYPE_TO_SETTING = {
   payment: 'paymentNotifications',
   invoice_paid: 'paymentNotifications',
   refund: 'paymentNotifications',
+  // Cancelling an invoice is a financial event, so it rides the payment toggle
+  // rather than the email one — a team that has muted billing chatter still
+  // needs to know money was written off.
+  invoice_voided: 'paymentNotifications',
   reminder_sent: 'reminderNotifications',
   reminders_batch: 'reminderNotifications',
   overdue: 'reminderNotifications',

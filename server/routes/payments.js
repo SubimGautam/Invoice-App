@@ -39,6 +39,12 @@ async function recalcInvoice(invoiceId) {
   const paid = Math.round(paidSum(inv.payments) * 100) / 100;
   const fullyPaid = paid >= total - MONEY_EPSILON;
   const status = fullyPaid ? 'paid' : paid > 0 ? 'partially_paid' : 'pending';
+  // Void is terminal. If an invoice was cancelled, a later payment (or refund)
+  // recalculating its status must NOT quietly resurrect it as live/paid — that
+  // would drop the cancellation out of every total again. The POST route
+  // rejects new payments on a void invoice; this guard covers the existing
+  // ones, e.g. a refund of a payment recorded before the void.
+  if (inv.status === 'void') return inv;
   return prisma.invoice.update({
     where: { id: invoiceId },
     data: { status, paidAt: fullyPaid ? (inv.paidAt || new Date()) : null }
@@ -171,6 +177,9 @@ router.post('/', requireRole('owner', 'admin', 'staff'), async (req, res) => {
   }
   if (invoice.status === 'draft') {
     return res.status(400).json({ error: 'Draft invoices cannot accept payments — send the invoice first.' });
+  }
+  if (invoice.status === 'void') {
+    return res.status(400).json({ error: 'This invoice was voided and cannot accept payments.' });
   }
   if (invoice.status === 'paid') {
     return res.status(400).json({ error: 'This invoice is already paid' });

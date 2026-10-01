@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import { STATUS_STYLES, computeDisplayStatus } from '../components/status';
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', NPR: 'Rs. ' };
 
@@ -14,26 +15,11 @@ function formatAddress(entity) {
   return lines.length ? lines : null;
 }
 
-const STATUS_STYLES = {
-  paid: { dot: '#006c49', text: '#006c49', bg: 'rgba(111,251,190,0.4)', label: 'Paid' },
-  pending: { dot: '#684000', text: '#684000', bg: 'rgba(255,221,184,0.6)', label: 'Sent' },
-  partiallyPaid: { dot: '#684000', text: '#684000', bg: 'rgba(255,234,180,0.85)', label: 'Partially Paid' },
-  overdue: { dot: '#ba1a1a', text: '#ba1a1a', bg: 'rgba(255,218,214,0.4)', label: 'Overdue' },
-  draft: { dot: '#777587', text: '#464555', bg: '#e2e7ff', label: 'Draft' },
-};
-
-// "Overdue" isn't a stored status — it's a sent/partially-paid invoice whose
-// due date has passed. "Partially Paid" is derived from recorded payments.
-function computeDisplayStatus(invoice) {
-  const total = Number(invoice.total || 0);
-  const paid = Number(invoice.paid || 0);
-  if (invoice.status === 'paid' || (total > 0 && paid >= total - 0.001)) return 'paid';
-  if (invoice.status === 'draft') return 'draft';
-  if (new Date(invoice.dueDate) < new Date()) return 'overdue';
-  if (paid > 0) return 'partiallyPaid';
-  return 'pending';
-}
-
+// Status vocabulary and the display-status derivation are SHARED with the
+// dashboard (and every other page that labels an invoice) via components/status.
+// This file used to keep its own copy, which is how a status like `void` ends
+// up rendered as a blank pill on one page and correct on another. Import both
+// from the single source instead.
 function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
 }
@@ -185,7 +171,8 @@ function PaymentModal({ remaining, currencySymbol, saving, error, onClose, onSub
 
 export default function InvoiceDetail() {
   const { id } = useParams();
-  const { canWrite } = useAuth();
+  const navigate = useNavigate();
+  const { canWrite, canManage } = useAuth();
 
   const [invoice, setInvoice] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -254,6 +241,51 @@ export default function InvoiceDetail() {
     try {
       const updated = await api.updateInvoiceStatus(id, newStatus);
       setInvoice((prev) => ({ ...updated, auditLogs: updated.auditLogs || prev.auditLogs }));
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Cancels the invoice while KEEPING it. A draft that was never sent and has no
+  // payments can still be truly deleted (the server is the authority and will
+  // refuse if there's history); anything with history is voided instead, which
+  // preserves the row, its line items, its payments and its audit trail while
+  // dropping it from every total. The reason is mandatory server-side because
+  // the explanation outliving the invoice is the entire point.
+  async function handleVoidInvoice() {
+    if (invoice.status === 'draft' && !(Number(invoice.paid) > 0)) {
+      if (!window.confirm(`Delete draft ${invoice.invoiceNumber}? This can't be undone.`)) return;
+      try {
+        await api.deleteInvoice(id);
+        navigate('/dashboard', { state: { notice: `Draft ${invoice.invoiceNumber} deleted.` } });
+      } catch (err) {
+        setActionError(err.message);
+      }
+      return;
+    }
+
+    if (!window.confirm(
+      `Void ${invoice.invoiceNumber}?\n\n` +
+      `The invoice is kept for your records and drops out of your totals, but it ` +
+      `can no longer be edited, emailed, or paid.`
+    )) return;
+
+    const reason = window.prompt('Why are you voiding this invoice? (required)', '');
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      setActionError('Give a short reason so the record still makes sense later.');
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError('');
+    setSuccessMessage('');
+    try {
+      const result = await api.voidInvoice(id, reason.trim());
+      setSuccessMessage(result.note || `Invoice voided.`);
+      await load();
     } catch (err) {
       setActionError(err.message);
     } finally {
@@ -532,25 +564,62 @@ export default function InvoiceDetail() {
       });
 
       const totalsY = doc.lastAutoTable.finalY;
-      doc.setFillColor(...blue);
-      doc.rect(rightX, totalsY, rightW, 9, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(10);
-      doc.setFont(undefined, 'bold');
-      doc.text('Total', rightX + 3, totalsY + 6);
-      doc.text(
-        formatMoney(totals.remaining),
-        rightX + rightW - 3,
-        totalsY + 6,
-        { align: 'right' }
-      );
+      // A printed invoice is what a client (or an auditor) keeps. On a voided
+      // one the blue "Total / amount owed" bar and "Thank you for your
+      // business" would both be false, so the PDF prints as a cancellation
+      // record instead: same line items and money, but labelled as written off
+      // and stamped VOID.
+      const isVoided = invoice.status === 'void';
+      if (isVoided) {
+        // Neutral grey, matching the void status pill in the app.
+        doc.setFillColor(214, 213, 224);
+        doc.rect(rightX, totalsY, rightW, 9, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text('Written Off', rightX + 3, totalsY + 6);
+        doc.text(formatMoney(totals.remaining), rightX + rightW - 3, totalsY + 6, { align: 'right' });
+      } else {
+        doc.setFillColor(...blue);
+        doc.rect(rightX, totalsY, rightW, 9, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text('Total', rightX + 3, totalsY + 6);
+        doc.text(formatMoney(totals.remaining), rightX + rightW - 3, totalsY + 6, { align: 'right' });
+      }
 
-      doc.setTextColor(140, 140, 140);
-      doc.setFontSize(8);
-      doc.setFont(undefined, 'normal');
-      doc.text('Thank you for your business.', pageWidth / 2, 285, { align: 'center' });
+      if (isVoided) {
+        // Prominent stamp so nobody mistakes an archived cancellation for a
+        // live demand. Placed above the totals so it can't be cropped off.
+        doc.setDrawColor(186, 26, 26);
+        doc.setLineWidth(1.2);
+        doc.setTextColor(186, 26, 26);
+        doc.setFontSize(26);
+        doc.setFont(undefined, 'bold');
+        doc.text('VOID', pageWidth / 2, 60, { align: 'center', angle: 30 });
+        doc.setLineWidth(0.2);
+        doc.setFontSize(8);
+        doc.setTextColor(70, 69, 85);
+        doc.setFont(undefined, 'normal');
+        doc.text(
+          `This invoice was cancelled${invoice.voidedAt ? ` on ${fmtDate(invoice.voidedAt)}` : ''}.` +
+          `${invoice.voidReason ? ` Reason: ${invoice.voidReason}` : ''} ` +
+          'It is retained for records only and no payment is due.',
+          pageWidth / 2,
+          272,
+          { align: 'center', maxWidth: contentWidth }
+        );
+      } else {
+        doc.setTextColor(140, 140, 140);
+        doc.setFontSize(8);
+        doc.setFont(undefined, 'normal');
+        doc.text('Thank you for your business.', pageWidth / 2, 285, { align: 'center' });
+      }
 
-      doc.save(`${invoice.invoiceNumber}.pdf`);
+      // A VOID- prefix survives being renamed to INV-0042-final.pdf, which
+      // matters because these files get filed as the record of what happened.
+      doc.save(`${isVoided ? 'VOID-' : ''}${invoice.invoiceNumber}.pdf`);
     } catch (err) {
       // Log the real error — the fallback message below is a last resort,
       // not a diagnosis. Check the console for what actually broke.
@@ -588,6 +657,31 @@ export default function InvoiceDetail() {
   return (
     <DashboardLayout>
       <div className="py-4">
+        {/* Voided: lead with WHY, because this page is now a permanent record of
+            a cancellation and the reason is the only thing that explains it.
+            It also states the two consequences (out of totals, unpayable) so
+            nobody wonders where the money went. */}
+        {invoice.status === 'void' && (
+          <div className="mb-5 rounded-2xl border border-[#d6d5e0] bg-[#f2f3ff] p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-[#131b2e]">
+                  This invoice was voided
+                  {invoice.voidedAt && ` on ${fmtDate(invoice.voidedAt)}`}
+                </p>
+                {invoice.voidReason && (
+                  <p className="mt-1 text-sm text-[#464555]">
+                    <span className="font-medium text-[#131b2e]">Reason:</span> {invoice.voidReason}
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-[#464555]">
+                  It is kept on record but excluded from your revenue, outstanding and aging
+                  figures. It can no longer be edited, emailed, or paid.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Top bar */}
         <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
           <div className="flex items-center gap-4">
@@ -610,7 +704,10 @@ export default function InvoiceDetail() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {canWrite && (
+            {/* A voided invoice is a preserved cancellation record: it is kept
+                for audit but can never be edited, sent, chased or paid again,
+                so none of the live-workflow actions are offered. */}
+            {canWrite && invoice.status !== 'void' && (
               <>
                 {invoice.status === 'draft' ? (
                   <button
@@ -662,6 +759,20 @@ export default function InvoiceDetail() {
                     {actionLoading ? 'Sending...' : 'Send Reminder'}
                   </button>
                 )}
+                {/* Destructive, so it's visually separated from the workflow
+                    actions above and gated on the higher manage role to match
+                    the server (void is owner/admin only). A never-sent draft is
+                    still genuinely deletable, so the label reflects which of
+                    the two the server will actually do. */}
+                {canManage && (
+                  <button
+                    onClick={handleVoidInvoice}
+                    disabled={actionLoading}
+                    className="flex items-center gap-1.5 ml-2 bg-[#fef2f2] hover:bg-[#fadedd] text-sm font-semibold text-[#ba1a1a] px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {invoice.status === 'draft' && !(Number(invoice.paid) > 0) ? 'Delete' : 'Void Invoice'}
+                  </button>
+                )}
               </>
             )}
             <button
@@ -670,7 +781,9 @@ export default function InvoiceDetail() {
             >
               ↓ PDF
             </button>
-            {invoice.status !== 'draft' && invoice.status !== 'paid' && (
+            {/* Never offer the pay link on a voided invoice: voiding clears the
+                token server-side, so this would hand the user a link that 404s. */}
+            {invoice.status !== 'draft' && invoice.status !== 'paid' && invoice.status !== 'void' && (
               <button
                 onClick={handleCopyPayLink}
                 className="flex items-center gap-1.5 bg-[#f2f3ff] hover:bg-[#e2e7ff] text-sm text-[#464555] px-4 py-2 rounded-xl transition-colors"
@@ -820,8 +933,20 @@ export default function InvoiceDetail() {
                     <span className="font-semibold text-[#131b2e]">Total Amount</span>
                     <span className="font-bold text-lg text-[#131b2e]">{formatMoney(totals.total)}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-[#3525cd] rounded-xl px-3 py-2 mt-1">
-                    <span className="text-sm text-white">Amount Due</span>
+                  {/* A voided invoice is owed nothing. Printing "Amount Due
+                      Rs. 750" in the app's headline colour on a cancelled
+                      document is the single most misleading thing this page
+                      could do — it reads as a live demand for payment. Show
+                      what was actually written off instead, in the neutral
+                      grey used for the void status pill. */}
+                  <div
+                    className={`flex items-center justify-between rounded-xl px-3 py-2 mt-1 ${
+                      invoice.status === 'void' ? 'bg-[#d6d5e0]' : 'bg-[#3525cd]'
+                    }`}
+                  >
+                    <span className="text-sm text-white">
+                      {invoice.status === 'void' ? 'Written Off' : 'Amount Due'}
+                    </span>
                     <span className="font-bold text-white">
                       {formatMoney(totals.remaining)}
                     </span>
@@ -859,7 +984,11 @@ export default function InvoiceDetail() {
 
               <div className="flex items-center justify-between pt-4 border-t border-[#c7c4d8]/30 text-xs text-[#464555] flex-wrap gap-2">
                 <span>{profile?.taxNumber ? `Tax ID: ${profile.taxNumber}` : ''}</span>
-                <span>Payment is expected within {paymentTermDays} calendar days of receipt.</span>
+                {/* No payment is expected on a cancelled document, and stating a
+                    payment term is a collection instruction. */}
+                {invoice.status !== 'void' && (
+                  <span>Payment is expected within {paymentTermDays} calendar days of receipt.</span>
+                )}
               </div>
             </div>
           </div>
@@ -872,15 +1001,31 @@ export default function InvoiceDetail() {
                 <div className="flex items-center justify-between bg-[#f2f3ff] rounded-xl p-3">
                   <div>
                     <p className="text-xs text-[#464555]">
-                      {invoice.status === 'paid' ? 'Paid On' : daysToDue >= 0 ? 'Days Remaining' : 'Overdue By'}
+                      {/* A voided invoice has no live collection date, so it
+                          reports WHEN it was cancelled rather than implying
+                          it's late. "Overdue By 200 Days" on a cancelled
+                          document is exactly the kind of false alarm that
+                          erodes trust in a billing tool. */}
+                      {invoice.status === 'void'
+                        ? 'Voided On'
+                        : invoice.status === 'paid'
+                          ? 'Paid On'
+                          : daysToDue >= 0
+                            ? 'Days Remaining'
+                            : 'Overdue By'}
                     </p>
                     <p className="text-sm font-semibold text-[#131b2e]">
-                      {invoice.status === 'paid'
-                        ? fmtDate(invoice.paidAt)
-                        : `${Math.abs(daysToDue)} Days`}
+                      {invoice.status === 'void'
+                        ? fmtDate(invoice.voidedAt)
+                        : invoice.status === 'paid'
+                          ? fmtDate(invoice.paidAt)
+                          : `${Math.abs(daysToDue)} Days`}
                     </p>
                   </div>
-                  {invoice.status !== 'paid' && (
+                  {/* On Track / Overdue is a live-collection signal. A voided
+                      invoice is neither, and the card already says "Voided On",
+                      so no status chip is rendered beside it. */}
+                  {invoice.status !== 'paid' && invoice.status !== 'void' && (
                     <span
                       className="text-xs font-semibold"
                       style={{ color: daysToDue >= 0 ? '#684000' : '#ba1a1a' }}
@@ -953,8 +1098,22 @@ export default function InvoiceDetail() {
                   <p className="text-sm font-semibold text-[#006c49]">{formatMoney(totals.paid)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-[#464555]">Remaining</p>
-                  <p className={`text-sm font-semibold ${totals.remaining > 0 ? 'text-[#ba1a1a]' : 'text-[#006c49]'}`}>
+                  {/* Red "Remaining" means money is still owed. On a voided
+                      invoice nothing is owed, so the label and colour both
+                      change — otherwise the Overview card contradicts the
+                      "excluded from your totals" banner directly above it. */}
+                  <p className="text-xs text-[#464555]">
+                    {invoice.status === 'void' ? 'Written Off' : 'Remaining'}
+                  </p>
+                  <p
+                    className={`text-sm font-semibold ${
+                      invoice.status === 'void'
+                        ? 'text-[#464555]'
+                        : totals.remaining > 0
+                          ? 'text-[#ba1a1a]'
+                          : 'text-[#006c49]'
+                    }`}
+                  >
                     {formatMoney(totals.remaining)}
                   </p>
                 </div>
@@ -982,7 +1141,9 @@ export default function InvoiceDetail() {
                 </div>
               )}
 
-              {canWrite && (
+              {/* No payments against a voided invoice: the server rejects them
+                  too, so the button would only ever surface an error. */}
+              {canWrite && invoice.status !== 'void' && (
                 <button
                   onClick={() => setPaymentModalOpen(true)}
                   disabled={invoice.status === 'paid' || invoice.status === 'draft' || actionLoading}

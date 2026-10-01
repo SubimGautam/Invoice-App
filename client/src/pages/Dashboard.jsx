@@ -183,6 +183,7 @@ export default function Dashboard() {
   const [notice, setNotice] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState(DEFAULT_STATS);
@@ -225,10 +226,18 @@ export default function Dashboard() {
     }
   }
 
-  // Re-fetch the paginated list whenever the page OR the active filter changes.
+  // Search now costs a round trip, so debounce it into its own value. Typing
+  // "Acme" shouldn't fire six identical requests.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Re-fetch whenever the page, the filter, or the debounced search changes —
+  // all three are server-side now, so none of them can be resolved locally.
   useEffect(() => {
     loadInvoices();
-  }, [page, activeFilter]);
+  }, [page, activeFilter, debouncedSearch]);
 
   async function loadInvoices() {
     setLoading(true);
@@ -240,7 +249,7 @@ export default function Dashboard() {
           : activeFilter === 'partiallyPaid'
             ? 'partially_paid'
             : activeFilter;
-      const data = await api.getInvoices(page, 5, statusParam);
+      const data = await api.getInvoices(page, 5, statusParam, debouncedSearch || undefined);
       setInvoices(data.invoices);
       setPagination(data.pagination);
     } catch (err) {
@@ -248,6 +257,14 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Typing a new search must land on page 1 of the NEW result set — otherwise
+  // you're on page 7 of a 2-page filtered list and it looks like the search
+  // found nothing.
+  function handleSearchChange(value) {
+    setSearch(value);
+    setPage(1);
   }
 
   // Clicking a tab changes the filter AND resets to page 1, so you don't land on
@@ -328,11 +345,46 @@ export default function Dashboard() {
     }
   }
 
+  // "Cancel" is one action with two very different outcomes, chosen by whether
+  // the invoice has financial history:
+  //   - never-sent draft, no payments  -> really deleted (it never happened)
+  //   - anything sent/paid/part-paid  -> voided: the row, its line items, its
+  //     payments and its audit trail all stay, but it leaves every total
+  // The void path asks for a reason because the whole point of voiding instead
+  // of deleting is that the explanation is still readable months later.
   async function handleDeleteInvoice(inv) {
     setMenuId(null);
-    if (!window.confirm(`Delete invoice ${inv.invoiceNumber}? Its payment history will be deleted too.`)) return;
+    const isTrashable = inv.status === 'draft' && !(inv.paid > 0);
+
+    if (isTrashable) {
+      if (!window.confirm(`Delete draft ${inv.invoiceNumber}? This can't be undone.`)) return;
+      try {
+        await api.deleteInvoice(inv.id);
+        setNotice(`Draft ${inv.invoiceNumber} deleted.`);
+        await Promise.all([loadStats(), loadInvoices()]);
+      } catch (err) {
+        setError(err.message);
+      }
+      return;
+    }
+
+    const label = inv.invoiceNumber;
+    if (!window.confirm(
+      `Void ${label}?\n\n` +
+      `The invoice is kept for your records and drops out of your totals, but it ` +
+      `can no longer be edited or paid.`
+    )) return;
+
+    const reason = window.prompt('Why are you voiding this invoice? (required)', '');
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      setError('Give a short reason so the record still makes sense later.');
+      return;
+    }
+
     try {
-      await api.deleteInvoice(inv.id);
+      const res = await api.voidInvoice(inv.id, reason.trim());
+      setNotice(res.note || `Invoice ${label} voided.`);
       await Promise.all([loadStats(), loadInvoices()]);
     } catch (err) {
       setError(err.message);
@@ -370,16 +422,10 @@ export default function Dashboard() {
     [invoices]
   );
 
-  // Status filtering now happens on the server (see loadInvoices) — this only
-  // handles search, since search stays client-side against the current page.
-  const filtered = useMemo(() => {
-    if (!search) return invoicesWithStatus;
-    return invoicesWithStatus.filter(
-      (inv) =>
-        inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
-        inv.client.name.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [invoicesWithStatus, search]);
+  // BOTH the status filter and the search are resolved server-side in
+  // loadInvoices, so the server's page is already the answer — filtering it
+  // again here would silently drop matches (the old bug: search only ever saw
+  // the 5 rows on the current page, so anything else read as "no results").
 
   const tabs = [
     { key: 'all', label: 'All Invoices' },
@@ -388,6 +434,7 @@ export default function Dashboard() {
     { key: 'partiallyPaid', label: 'Partially Paid' },
     { key: 'paid', label: 'Paid' },
     { key: 'overdue', label: 'Overdue' },
+    { key: 'void', label: 'Void' },
   ];
 
   return (
@@ -444,7 +491,7 @@ export default function Dashboard() {
                 value={formatMoney(stats.sums.totalOutstanding, currency)}
                 icon={<OutstandingIcon className="w-[18px] h-[18px]" />}
                 iconBg="#eaedff"
-                footnote={`${stats.counts.all - stats.counts.draft - stats.counts.paid} invoices pending`}
+                footnote={`${stats.counts.pending + stats.counts.partiallyPaid} invoices pending`}
                 badge={<span className="flex items-center gap-1"><UpArrowIcon className="w-2.5 h-1.5" />Live</span>}
                 badgeColor="#006c49"
                 badgeBg="#f2f3ff"
@@ -513,8 +560,8 @@ export default function Dashboard() {
                     <input
                       type="text"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search by invoice # or client name..."
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      placeholder="Search invoice #, client, or line item..."
                       className="w-full h-10 pl-9 pr-4 rounded-xl bg-[#f2f3ff] text-sm text-[#131b2e] placeholder:text-[rgba(70,69,85,0.7)] focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -545,26 +592,37 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.length === 0 && (
+                    {invoicesWithStatus.length === 0 && (
                       <tr>
                         <td colSpan={7} className="text-center text-[#464555] text-sm py-10">
-                          {invoicesWithStatus.length === 0 ? (
+                          {/* Search is server-side, so an empty table is now a
+                              real "nothing matched anywhere in your account"
+                              rather than "nothing on this page". Say which,
+                              and name the search term so it's clear what was
+                              actually looked for. */}
+                          {search.trim() ? (
                             <>
-                              No invoices{activeFilter !== 'all' ? ` with status "${activeFilter}"` : ' yet'}.{' '}
-                              {activeFilter === 'all' && (
-                                <Link to="/invoices/new" className="text-[#3525cd] font-semibold hover:underline">
-                                  Create your first one
-                                </Link>
-                              )}
-                              {activeFilter === 'all' && '.'}
+                              No invoices match <span className="font-semibold text-[#131b2e]">&quot;{search.trim()}&quot;</span>.
+                              <br />
+                              <span className="text-xs">
+                                Searched every invoice in your account — number, client, and line items.
+                              </span>
                             </>
+                          ) : activeFilter !== 'all' ? (
+                            <>No invoices with status &quot;{activeFilter}&quot;.</>
                           ) : (
-                            'No invoices match your search.'
+                            <>
+                              No invoices yet.{' '}
+                              <Link to="/invoices/new" className="text-[#3525cd] font-semibold hover:underline">
+                                Create your first one
+                              </Link>
+                              .
+                            </>
                           )}
                         </td>
                       </tr>
                     )}
-                    {filtered.map((inv) => (
+                    {invoicesWithStatus.map((inv) => (
                       <tr key={inv.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <span className="font-mono font-semibold text-[#3525cd]">#{inv.invoiceNumber}</span>
@@ -615,7 +673,7 @@ export default function Dashboard() {
                                 >
                                   View Invoice
                                 </Link>
-                                {canWrite && inv.status !== 'paid' && inv.status !== 'partially_paid' && (
+                                {canWrite && inv.status !== 'paid' && inv.status !== 'partially_paid' && inv.status !== 'void' && (
                                   <Link
                                     to={`/invoices/${inv.id}/edit`}
                                     onClick={() => setMenuId(null)}
@@ -624,7 +682,7 @@ export default function Dashboard() {
                                     Edit
                                   </Link>
                                 )}
-                                {canWrite && inv.displayStatus !== 'draft' && inv.displayStatus !== 'paid' && (
+                                {canWrite && inv.displayStatus !== 'draft' && inv.displayStatus !== 'paid' && inv.displayStatus !== 'void' && (
                                   <button
                                     onClick={() => handleMarkPaid(inv)}
                                     className="block w-full text-left px-4 py-2 text-[#3525cd] hover:bg-gray-50 transition-colors"
@@ -632,12 +690,14 @@ export default function Dashboard() {
                                     Mark as Paid
                                   </button>
                                 )}
-                                {canManage && (
+                                {/* Voided invoices are terminal and preserved for the
+                                    record, so there is nothing left to do to them. */}
+                                {canManage && inv.status !== 'void' && (
                                   <button
                                     onClick={() => handleDeleteInvoice(inv)}
                                     className="block w-full text-left px-4 py-2 text-[#ba1a1a] hover:bg-gray-50 transition-colors"
                                   >
-                                    Delete
+                                    {inv.status === 'draft' && !(inv.paid > 0) ? 'Delete' : 'Void Invoice'}
                                   </button>
                                 )}
                               </div>
@@ -652,7 +712,7 @@ export default function Dashboard() {
 
               <div className="flex items-center justify-between p-4 flex-wrap gap-3">
                 <p className="text-xs text-[#464555]">
-                  Showing <span className="font-semibold text-[#131b2e]">{filtered.length}</span> of{' '}
+                  Showing <span className="font-semibold text-[#131b2e]">{invoicesWithStatus.length}</span> of{' '}
                   <span className="font-semibold text-[#131b2e]">{pagination.total}</span> invoices
                 </p>
                 <div className="flex items-center gap-1">
@@ -690,7 +750,14 @@ export default function Dashboard() {
                   </div>
                   <span className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[#006c49]">
                     <span className="w-2 h-2 rounded-full bg-[#006c49]" />
-                    {stats.counts.all > 0 ? Math.round((stats.counts.paid / stats.counts.all) * 100) : 0}% paid
+                    {(() => {
+                      // Denominator is invoices actually SENT, not `all`:
+                      // a draft was never billed and a voided one was cancelled,
+                      // so including them would understate the collection rate
+                      // for reasons that have nothing to do with getting paid.
+                      const sent = stats.counts.paid + stats.counts.pending + stats.counts.partiallyPaid;
+                      return sent > 0 ? Math.round((stats.counts.paid / sent) * 100) : 0;
+                    })()}% paid
                   </span>
                 </div>
 

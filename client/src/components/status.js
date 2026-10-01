@@ -10,11 +10,20 @@ export const STATUS_STYLES = {
   partiallyPaid: { dot: '#684000', text: '#684000', bg: 'rgba(255,234,180,0.85)', label: 'Partially Paid' },
   overdue: { dot: '#ba1a1a', text: '#ba1a1a', bg: 'rgba(255,218,214,0.4)', label: 'Overdue' },
   draft: { dot: '#777587', text: '#464555', bg: '#e2e7ff', label: 'Draft' },
+  // Neutral/muted on purpose: a voided invoice isn't an error (that's `overdue`)
+  // or a success, it's "this didn't happen". Deliberately distinct from `draft`'s
+  // indigo so a cancelled invoice never reads as still-editable work in progress.
+  void: { dot: '#777587', text: '#464555', bg: 'rgba(214,213,224,0.7)', label: 'Void' },
 };
 
 export function computeDisplayStatus(invoice) {
   const total = Number(invoice.total || 0);
   const paid = Number(invoice.paid || 0);
+  // `void` is checked FIRST and short-circuits. A voided invoice is excluded
+  // from every total, so letting it fall through to the paid/overdue logic
+  // would relabel a cancellation as "Paid" or "Overdue" purely because of
+  // leftover payments or a past due date.
+  if (invoice.status === 'void') return 'void';
   if (invoice.status === 'paid' || (total > 0 && paid >= total - 0.001)) return 'paid';
   if (invoice.status === 'draft') return 'draft';
   if (new Date(invoice.dueDate) < new Date()) return 'overdue';

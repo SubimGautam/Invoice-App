@@ -12,6 +12,12 @@ enum InvoiceStatus {
   pending
   partially_paid
   paid
+  // Written off / cancelled, but RETAINED. Once an invoice has left the building
+  // (sent, or has payments against it) deleting the row would destroy financial
+  // history that auditors and tax authorities expect to still be able to read.
+  // Voiding keeps the invoice and its audit trail but removes it from every
+  // total: excluded from billed/collected revenue, aging, receivables and DSO.
+  void
 }
 
 // Team roles. Owner is the account creator; admin helps run the workspace;
@@ -188,6 +194,12 @@ model Invoice {
   client        Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
   invoiceNumber String
   status        InvoiceStatus @default(draft)
+  // Set when the invoice was voided (see the `void` status). Kept on the row so
+  // the reason and who/when cancelled it survives — the point of voiding rather
+  // than deleting is that the explanation is still auditable later.
+  voidedAt      DateTime?
+  voidedByUserId String?
+  voidReason    String?
   issueDate     DateTime
   dueDate       DateTime
   paidAt        DateTime?
