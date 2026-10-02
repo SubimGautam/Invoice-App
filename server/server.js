@@ -9,10 +9,15 @@ const app = express();
 // Uploaded avatars and business logos live under /uploads and are served
 // statically by Express (client renders them straight from the URL).
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
-for (const sub of ['avatars', 'logos']) {
-  fs.mkdirSync(path.join(UPLOADS_DIR, sub), { recursive: true });
+
+if (!process.env.VERCEL) {
+  for (const sub of ['avatars', 'logos']) {
+    fs.mkdirSync(path.join(UPLOADS_DIR, sub), { recursive: true });
+  }
+
+  app.use('/uploads', express.static(UPLOADS_DIR));
 }
-app.use('/uploads', express.static(UPLOADS_DIR));
+
 
 // Middleware
 app.use(cors({
