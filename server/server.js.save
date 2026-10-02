@@ -52,17 +52,4 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong' });
 });
 
-const PORT = process.env.PORT || 5000;
-
-// Start the server only when running locally.
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-
-  // Local development scheduler.
-  const { startScheduler } = require('./lib/scheduler');
-  startScheduler();
-}
-
 module.exports = app;
