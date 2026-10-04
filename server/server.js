@@ -25,22 +25,27 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/clients', require('./routes/clients'));
-app.use('/api/invoices', require('./routes/invoices'));
-app.use('/api/estimates', require('./routes/estimates'));
-// Public quote links — no auth, authenticated by the unguessable token only.
-app.use('/api/estimate', require('./routes/estimate-view'));
-app.use('/api/payments', require('./routes/payments'));
-app.use('/api/products', require('./routes/products'));
-app.use('/api/account', require('./routes/account'));
-app.use('/api/reports', require('./routes/reports'));
-app.use('/api/workspaces', require('./routes/workspaces'));
-app.use('/api/notifications', require('./routes/notifications'));
-app.use('/api/emails', require('./routes/emails'));
-app.use('/api/search', require('./routes/search'));
-app.use('/api/recurring', require('./routes/recurring'));
-app.use('/api/pay', require('./routes/pay'));
+function mountRoute(path, modulePath) {
+  const route = require(modulePath);
+  console.log(`[route] ${path} -> ${typeof route}`);
+  app.use(path, route);
+}
+
+mountRoute('/api/auth', './routes/auth');
+mountRoute('/api/clients', './routes/clients');
+mountRoute('/api/invoices', './routes/invoices');
+mountRoute('/api/estimates', './routes/estimates');
+mountRoute('/api/estimate', './routes/estimate-view');
+mountRoute('/api/payments', './routes/payments');
+mountRoute('/api/products', './routes/products');
+mountRoute('/api/account', './routes/account');
+mountRoute('/api/reports', './routes/reports');
+mountRoute('/api/workspaces', './routes/workspaces');
+mountRoute('/api/notifications', './routes/notifications');
+mountRoute('/api/emails', './routes/emails');
+mountRoute('/api/search', './routes/search');
+mountRoute('/api/recurring', './routes/recurring');
+mountRoute('/api/pay', './routes/pay');
 // Health check route — confirms the server is alive
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
