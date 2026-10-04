@@ -1,8 +1,26 @@
+
 require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
+
+// Route imports
+const authRoutes = require('./routes/auth');
+const clientsRoutes = require('./routes/clients');
+const invoicesRoutes = require('./routes/invoices');
+const estimatesRoutes = require('./routes/estimates');
+const estimateViewRoutes = require('./routes/estimate-view');
+const paymentsRoutes = require('./routes/payments');
+const productsRoutes = require('./routes/products');
+const accountRoutes = require('./routes/account');
+const reportsRoutes = require('./routes/reports');
+const workspacesRoutes = require('./routes/workspaces');
+const notificationsRoutes = require('./routes/notifications');
+const emailsRoutes = require('./routes/emails');
+const searchRoutes = require('./routes/search');
+const recurringRoutes = require('./routes/recurring');
+const payRoutes = require('./routes/pay');
 
 const app = express();
 
@@ -18,34 +36,31 @@ if (!process.env.VERCEL) {
   app.use('/uploads', express.static(UPLOADS_DIR));
 }
 
-
 // Middleware
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json());
-function mountRoute(path, modulePath) {
-  const route = require(modulePath);
-  console.log(`[route] ${path} -> ${typeof route}`);
-  app.use(path, route);
-}
 
-mountRoute('/api/auth', './routes/auth');
-mountRoute('/api/clients', './routes/clients');
-mountRoute('/api/invoices', './routes/invoices');
-mountRoute('/api/estimates', './routes/estimates');
-mountRoute('/api/estimate', './routes/estimate-view');
-mountRoute('/api/payments', './routes/payments');
-mountRoute('/api/products', './routes/products');
-mountRoute('/api/account', './routes/account');
-mountRoute('/api/reports', './routes/reports');
-mountRoute('/api/workspaces', './routes/workspaces');
-mountRoute('/api/notifications', './routes/notifications');
-mountRoute('/api/emails', './routes/emails');
-mountRoute('/api/search', './routes/search');
-mountRoute('/api/recurring', './routes/recurring');
-mountRoute('/api/pay', './routes/pay');
+app.use(express.json());
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/clients', clientsRoutes);
+app.use('/api/invoices', invoicesRoutes);
+app.use('/api/estimates', estimatesRoutes);
+app.use('/api/estimate', estimateViewRoutes);
+app.use('/api/payments', paymentsRoutes);
+app.use('/api/products', productsRoutes);
+app.use('/api/account', accountRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/workspaces', workspacesRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/emails', emailsRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/recurring', recurringRoutes);
+app.use('/api/pay', payRoutes);
+
 // Health check route — confirms the server is alive
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -76,3 +91,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+
