@@ -35,6 +35,7 @@ function issueToken(userId, workspaceId) {
 // POST /api/auth/signup — creates the user, their first workspace (they become
 // the owner), the workspace settings, and the business profile, all atomically.
 router.post('/signup', async (req, res) => {
+	try{
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -80,10 +81,16 @@ router.post('/signup', async (req, res) => {
   });
 
   res.status(201).json({
-    token: issueToken(user.id, workspace.id),
-    user: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl },
-    workspace: { id: workspace.id, name: workspace.name, role: 'owner' }
-  });
+      token: issueToken(user.id, workspace.id),
+      user: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl },
+      workspace: { id: workspace.id, name: workspace.name, role: 'owner' }
+    });
+  } catch (error) {
+    console.error('[signup] ERROR:', error);
+    return res.status(500).json({
+      error: error.message || 'Signup failed'
+    });
+  }
 });
 
 // POST /api/auth/login — resolves the user's earliest workspace as the active
